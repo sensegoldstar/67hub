@@ -1,0 +1,867 @@
+-- Combined Script: Fly + Auto Collect Brainrot
+-- For game: Survive Lava for Brainrots
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+-- ========== FLY VARIABLES ==========
+local flying = false
+local flySpeed = 50
+local heightSpeed = 30
+local savedPositions = {}
+local maxSavedPositions = 3
+
+local moveDirection = {
+    forward = false,
+    backward = false,
+    left = false,
+    right = false,
+    up = false,
+    down = false
+}
+
+local bodyVelocity
+local bodyGyro
+
+-- ========== AUTO COLLECT VARIABLES ==========
+local autoCollecting = false
+local collectDelay = 0.5
+local brainrotsCollected = 0
+
+local selectedRarities = {
+    Celestial = true,
+    Common = true,
+    Epic = true,
+    Godly = true,
+    Legendary = true,
+    Mythic = true,
+    Rare = true,
+    Secret = true
+}
+
+-- ========== GUI VARIABLES ==========
+local screenGui
+local mainFrame
+local flyTab
+local collectTab
+local currentTab = "fly"
+
+-- ========== FLY FUNCTIONS ==========
+local function startFlying()
+    if flying then return end
+    flying = true
+    
+    bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bodyVelocity.Parent = humanoidRootPart
+    
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bodyGyro.P = 9e4
+    bodyGyro.Parent = humanoidRootPart
+    
+    print("🚀 Flying started!")
+end
+
+local function stopFlying()
+    if not flying then return end
+    flying = false
+    
+    if bodyVelocity then
+        bodyVelocity:Destroy()
+        bodyVelocity = nil
+    end
+    
+    if bodyGyro then
+        bodyGyro:Destroy()
+        bodyGyro = nil
+    end
+    
+    print("🛬 Flying stopped")
+end
+
+local function updateFlyDirection()
+    if not flying then return end
+    
+    local camera = workspace.CurrentCamera
+    local cameraCFrame = camera.CFrame
+    
+    local direction = Vector3.new(0, 0, 0)
+    
+    if moveDirection.forward then
+        direction = direction + (cameraCFrame.LookVector * flySpeed)
+    end
+    if moveDirection.backward then
+        direction = direction - (cameraCFrame.LookVector * flySpeed)
+    end
+    if moveDirection.left then
+        direction = direction - (cameraCFrame.RightVector * flySpeed)
+    end
+    if moveDirection.right then
+        direction = direction + (cameraCFrame.RightVector * flySpeed)
+    end
+    if moveDirection.up then
+        direction = direction + Vector3.new(0, heightSpeed, 0)
+    end
+    if moveDirection.down then
+        direction = direction - Vector3.new(0, heightSpeed, 0)
+    end
+    
+    if bodyVelocity then
+        bodyVelocity.Velocity = direction
+    end
+    
+    if bodyGyro then
+        bodyGyro.CFrame = cameraCFrame
+    end
+end
+
+-- ========== AUTO COLLECT FUNCTIONS ==========
+local function findAllBrainrots()
+    local brainrots = {}
+    local rarityFolders = {"Celestial", "Common", "Epic", "Godly", "Legendary", "Mythic", "Rare", "Secret"}
+    
+    pcall(function()
+        local gameFolder = workspace:FindFirstChild("GameFolder")
+        if gameFolder then
+            local brainrotsFolder = gameFolder:FindFirstChild("Brainrots")
+            if brainrotsFolder then
+                for _, rarityName in ipairs(rarityFolders) do
+                    local rarityFolder = brainrotsFolder:FindFirstChild(rarityName)
+                    if rarityFolder then
+                        for _, brainrot in pairs(rarityFolder:GetChildren()) do
+                            if brainrot:IsA("Model") then
+                                local primaryPart = brainrot.PrimaryPart or brainrot:FindFirstChildWhichIsA("BasePart")
+                                if primaryPart then
+                                    table.insert(brainrots, {
+                                        name = brainrot.Name,
+                                        rarity = rarityName,
+                                        position = primaryPart.Position,
+                                        object = brainrot
+                                    })
+                                end
+                            elseif brainrot:IsA("BasePart") then
+                                table.insert(brainrots, {
+                                    name = brainrot.Name,
+                                    rarity = rarityName,
+                                    position = brainrot.Position,
+                                    object = brainrot
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    return brainrots
+end
+
+local function teleportTo(position)
+    if humanoidRootPart then
+        humanoidRootPart.CFrame = CFrame.new(position)
+    end
+end
+
+local function collectBrainrot(brainrotObject)
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    
+    -- Try all methods
+    pcall(function()
+        local proximityPrompt = brainrotObject:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if proximityPrompt then
+            fireproximityprompt(proximityPrompt)
+        end
+    end)
+    
+    pcall(function()
+        local clickDetector = brainrotObject:FindFirstChildWhichIsA("ClickDetector", true)
+        if clickDetector then
+            fireclickdetector(clickDetector)
+        end
+    end)
+    
+    -- Press E multiple times
+    for i = 1, 3 do
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+        wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        wait(0.05)
+    end
+    
+    -- Hold E key
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+    wait(3)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+    wait(0.5)
+    
+    return true
+end
+
+local function startAutoCollect()
+    if autoCollecting then return end
+    autoCollecting = true
+    brainrotsCollected = 0
+    
+    print("🚀 Auto-collect Brainrot started!")
+    
+    spawn(function()
+        while autoCollecting do
+            local allBrainrots = findAllBrainrots()
+            
+            -- Filter by rarity
+            local brainrots = {}
+            for _, brainrot in ipairs(allBrainrots) do
+                if selectedRarities[brainrot.rarity] then
+                    table.insert(brainrots, brainrot)
+                end
+            end
+            
+            if #brainrots > 0 then
+                for i, brainrot in ipairs(brainrots) do
+                    if not autoCollecting then break end
+                    
+                    local originalPosition = humanoidRootPart.CFrame
+                    
+                    teleportTo(brainrot.position)
+                    wait(0.3)
+                    
+                    collectBrainrot(brainrot.object)
+                    
+                    humanoidRootPart.CFrame = originalPosition
+                    
+                    brainrotsCollected = brainrotsCollected + 1
+                    wait(collectDelay)
+                end
+            end
+            
+            wait(3)
+        end
+    end)
+end
+
+local function stopAutoCollect()
+    if not autoCollecting then return end
+    autoCollecting = false
+    print("⏸️ Auto-collect stopped")
+end
+
+-- ========== CREATE GUI ==========
+local function createGUI()
+    if player.PlayerGui:FindFirstChild("CombinedGUI") then
+        player.PlayerGui.CombinedGUI:Destroy()
+    end
+    
+    screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "CombinedGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Main Frame
+    mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 450, 0, 600)
+    mainFrame.Position = UDim2.new(0.5, -225, 0.5, -300)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 15)
+    mainCorner.Parent = mainFrame
+    
+    -- หัวข้อ
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.Size = UDim2.new(1, 0, 0, 50)
+    titleLabel.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
+    titleLabel.BorderSizePixel = 0
+    titleLabel.Text = "🎮 FLY + AUTO COLLECT"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextSize = 20
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 15)
+    titleCorner.Parent = titleLabel
+    
+    -- Tab Buttons
+    local tabFrame = Instance.new("Frame")
+    tabFrame.Name = "TabFrame"
+    tabFrame.Size = UDim2.new(1, -20, 0, 40)
+    tabFrame.Position = UDim2.new(0, 10, 0, 60)
+    tabFrame.BackgroundTransparency = 1
+    tabFrame.Parent = mainFrame
+    
+    local flyTabButton = Instance.new("TextButton")
+    flyTabButton.Name = "FlyTab"
+    flyTabButton.Size = UDim2.new(0.48, 0, 1, 0)
+    flyTabButton.Position = UDim2.new(0, 0, 0, 0)
+    flyTabButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+    flyTabButton.Text = "✈️ FLY"
+    flyTabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    flyTabButton.TextSize = 16
+    flyTabButton.Font = Enum.Font.GothamBold
+    flyTabButton.Parent = tabFrame
+    
+    local flyTabCorner = Instance.new("UICorner")
+    flyTabCorner.CornerRadius = UDim.new(0, 8)
+    flyTabCorner.Parent = flyTabButton
+    
+    local collectTabButton = Instance.new("TextButton")
+    collectTabButton.Name = "CollectTab"
+    collectTabButton.Size = UDim2.new(0.48, 0, 1, 0)
+    collectTabButton.Position = UDim2.new(0.52, 0, 0, 0)
+    collectTabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    collectTabButton.Text = "🧠 AUTO COLLECT"
+    collectTabButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+    collectTabButton.TextSize = 16
+    collectTabButton.Font = Enum.Font.GothamBold
+    collectTabButton.Parent = tabFrame
+    
+    local collectTabCorner = Instance.new("UICorner")
+    collectTabCorner.CornerRadius = UDim.new(0, 8)
+    collectTabCorner.Parent = collectTabButton
+    
+    -- Content Frame
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = "ContentFrame"
+    contentFrame.Size = UDim2.new(1, -20, 1, -120)
+    contentFrame.Position = UDim2.new(0, 10, 0, 110)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Parent = mainFrame
+    
+    -- ========== FLY TAB CONTENT ==========
+    flyTab = Instance.new("Frame")
+    flyTab.Name = "FlyTab"
+    flyTab.Size = UDim2.new(1, 0, 1, 0)
+    flyTab.BackgroundTransparency = 1
+    flyTab.Visible = true
+    flyTab.Parent = contentFrame
+    
+    -- Fly Speed
+    local flySpeedLabel = Instance.new("TextLabel")
+    flySpeedLabel.Size = UDim2.new(1, 0, 0, 25)
+    flySpeedLabel.Position = UDim2.new(0, 0, 0, 10)
+    flySpeedLabel.BackgroundTransparency = 1
+    flySpeedLabel.Text = "🚀 Fly Speed: " .. flySpeed
+    flySpeedLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    flySpeedLabel.TextSize = 14
+    flySpeedLabel.Font = Enum.Font.GothamBold
+    flySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    flySpeedLabel.Parent = flyTab
+    
+    local flySpeedSliderBg = Instance.new("Frame")
+    flySpeedSliderBg.Size = UDim2.new(1, 0, 0, 8)
+    flySpeedSliderBg.Position = UDim2.new(0, 0, 0, 40)
+    flySpeedSliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    flySpeedSliderBg.BorderSizePixel = 0
+    flySpeedSliderBg.Parent = flyTab
+    
+    local flySpeedSliderBgCorner = Instance.new("UICorner")
+    flySpeedSliderBgCorner.CornerRadius = UDim.new(0, 4)
+    flySpeedSliderBgCorner.Parent = flySpeedSliderBg
+    
+    local flySpeedSlider = Instance.new("Frame")
+    flySpeedSlider.Size = UDim2.new(flySpeed / 1000, 0, 1, 0)
+    flySpeedSlider.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    flySpeedSlider.BorderSizePixel = 0
+    flySpeedSlider.Parent = flySpeedSliderBg
+    
+    local flySpeedSliderCorner = Instance.new("UICorner")
+    flySpeedSliderCorner.CornerRadius = UDim.new(0, 4)
+    flySpeedSliderCorner.Parent = flySpeedSlider
+    
+    -- Height Speed
+    local heightSpeedLabel = Instance.new("TextLabel")
+    heightSpeedLabel.Size = UDim2.new(1, 0, 0, 25)
+    heightSpeedLabel.Position = UDim2.new(0, 0, 0, 70)
+    heightSpeedLabel.BackgroundTransparency = 1
+    heightSpeedLabel.Text = "⬆️ Up/Down Speed: " .. heightSpeed
+    heightSpeedLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+    heightSpeedLabel.TextSize = 14
+    heightSpeedLabel.Font = Enum.Font.GothamBold
+    heightSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    heightSpeedLabel.Parent = flyTab
+    
+    local heightSpeedSliderBg = Instance.new("Frame")
+    heightSpeedSliderBg.Size = UDim2.new(1, 0, 0, 8)
+    heightSpeedSliderBg.Position = UDim2.new(0, 0, 0, 100)
+    heightSpeedSliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    heightSpeedSliderBg.BorderSizePixel = 0
+    heightSpeedSliderBg.Parent = flyTab
+    
+    local heightSpeedSliderBgCorner = Instance.new("UICorner")
+    heightSpeedSliderBgCorner.CornerRadius = UDim.new(0, 4)
+    heightSpeedSliderBgCorner.Parent = heightSpeedSliderBg
+    
+    local heightSpeedSlider = Instance.new("Frame")
+    heightSpeedSlider.Size = UDim2.new(heightSpeed / 100, 0, 1, 0)
+    heightSpeedSlider.BackgroundColor3 = Color3.fromRGB(150, 255, 150)
+    heightSpeedSlider.BorderSizePixel = 0
+    heightSpeedSlider.Parent = heightSpeedSliderBg
+    
+    local heightSpeedSliderCorner = Instance.new("UICorner")
+    heightSpeedSliderCorner.CornerRadius = UDim.new(0, 4)
+    heightSpeedSliderCorner.Parent = heightSpeedSlider
+    
+    -- Fly Instructions
+    local flyInstructions = Instance.new("TextLabel")
+    flyInstructions.Size = UDim2.new(1, 0, 0, 60)
+    flyInstructions.Position = UDim2.new(0, 0, 0, 130)
+    flyInstructions.BackgroundTransparency = 1
+    flyInstructions.Text = "📋 Controls:\nQ - Toggle Fly | WASD - Move\nSpace - Up | Shift - Down"
+    flyInstructions.TextColor3 = Color3.fromRGB(180, 180, 200)
+    flyInstructions.TextSize = 12
+    flyInstructions.Font = Enum.Font.Gotham
+    flyInstructions.TextXAlignment = Enum.TextXAlignment.Left
+    flyInstructions.TextYAlignment = Enum.TextYAlignment.Top
+    flyInstructions.Parent = flyTab
+    
+    -- Save Position Button
+    local savePositionButton = Instance.new("TextButton")
+    savePositionButton.Size = UDim2.new(1, 0, 0, 35)
+    savePositionButton.Position = UDim2.new(0, 0, 0, 200)
+    savePositionButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+    savePositionButton.BorderSizePixel = 0
+    savePositionButton.Text = "💾 Save Current Position"
+    savePositionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    savePositionButton.TextSize = 14
+    savePositionButton.Font = Enum.Font.GothamBold
+    savePositionButton.Parent = flyTab
+    
+    local saveButtonCorner = Instance.new("UICorner")
+    saveButtonCorner.CornerRadius = UDim.new(0, 8)
+    saveButtonCorner.Parent = savePositionButton
+    
+    -- Saved Positions Frame
+    local savedPositionsFrame = Instance.new("Frame")
+    savedPositionsFrame.Size = UDim2.new(1, 0, 0, 105)
+    savedPositionsFrame.Position = UDim2.new(0, 0, 0, 245)
+    savedPositionsFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    savedPositionsFrame.BorderSizePixel = 0
+    savedPositionsFrame.Parent = flyTab
+    
+    local savedFrameCorner = Instance.new("UICorner")
+    savedFrameCorner.CornerRadius = UDim.new(0, 8)
+    savedFrameCorner.Parent = savedPositionsFrame
+    
+    local savedLabel = Instance.new("TextLabel")
+    savedLabel.Size = UDim2.new(1, -10, 0, 25)
+    savedLabel.Position = UDim2.new(0, 5, 0, 5)
+    savedLabel.BackgroundTransparency = 1
+    savedLabel.Text = "📍 Saved Positions (0/3)"
+    savedLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+    savedLabel.TextSize = 12
+    savedLabel.Font = Enum.Font.GothamBold
+    savedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    savedLabel.Parent = savedPositionsFrame
+    
+    -- ฟังก์ชันอัพเดทปุ่มตำแหน่ง
+    local function updatePositionButtons()
+        for _, child in pairs(savedPositionsFrame:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:Destroy()
+            end
+        end
+        
+        savedLabel.Text = "📍 Saved Positions (" .. #savedPositions .. "/3)"
+        
+        for i, pos in ipairs(savedPositions) do
+            local posButton = Instance.new("TextButton")
+            posButton.Size = UDim2.new(1, -10, 0, 22)
+            posButton.Position = UDim2.new(0, 5, 0, 30 + (i - 1) * 25)
+            posButton.BackgroundColor3 = Color3.fromRGB(50, 200, 150)
+            posButton.BorderSizePixel = 0
+            posButton.Text = string.format("🚀 Position %d: (%.0f, %.0f, %.0f)", i, pos.X, pos.Y, pos.Z)
+            posButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+            posButton.TextSize = 11
+            posButton.Font = Enum.Font.Gotham
+            posButton.TextXAlignment = Enum.TextXAlignment.Left
+            posButton.Parent = savedPositionsFrame
+            
+            local posButtonCorner = Instance.new("UICorner")
+            posButtonCorner.CornerRadius = UDim.new(0, 5)
+            posButtonCorner.Parent = posButton
+            
+            posButton.MouseEnter:Connect(function()
+                TweenService:Create(posButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(70, 220, 170)}):Play()
+            end)
+            
+            posButton.MouseLeave:Connect(function()
+                TweenService:Create(posButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 200, 150)}):Play()
+            end)
+            
+            posButton.MouseButton1Click:Connect(function()
+                if humanoidRootPart then
+                    humanoidRootPart.CFrame = CFrame.new(pos)
+                    print("🚀 Teleported to position " .. i)
+                    
+                    TweenService:Create(posButton, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+                    wait(0.1)
+                    TweenService:Create(posButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 200, 150)}):Play()
+                end
+            end)
+        end
+    end
+    
+    -- Save Position Button Click
+    savePositionButton.MouseButton1Click:Connect(function()
+        if humanoidRootPart then
+            if #savedPositions >= maxSavedPositions then
+                table.remove(savedPositions, 1)
+            end
+            
+            local currentPos = humanoidRootPart.Position
+            table.insert(savedPositions, currentPos)
+            updatePositionButtons()
+            
+            print("💾 Position saved: " .. tostring(currentPos))
+            
+            TweenService:Create(savePositionButton, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(150, 255, 150)}):Play()
+            wait(0.1)
+            TweenService:Create(savePositionButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 150, 255)}):Play()
+        end
+    end)
+    
+    savePositionButton.MouseEnter:Connect(function()
+        TweenService:Create(savePositionButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(120, 170, 255)}):Play()
+    end)
+    
+    savePositionButton.MouseLeave:Connect(function()
+        TweenService:Create(savePositionButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 150, 255)}):Play()
+    end)
+
+    
+    -- ========== COLLECT TAB CONTENT ==========
+    collectTab = Instance.new("Frame")
+    collectTab.Name = "CollectTab"
+    collectTab.Size = UDim2.new(1, 0, 1, 0)
+    collectTab.BackgroundTransparency = 1
+    collectTab.Visible = false
+    collectTab.Parent = contentFrame
+    
+    -- Delay Label
+    local delayLabel = Instance.new("TextLabel")
+    delayLabel.Size = UDim2.new(1, 0, 0, 25)
+    delayLabel.Position = UDim2.new(0, 0, 0, 10)
+    delayLabel.BackgroundTransparency = 1
+    delayLabel.Text = "⏱️ Delay: " .. collectDelay .. " sec"
+    delayLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+    delayLabel.TextSize = 12
+    delayLabel.Font = Enum.Font.Gotham
+    delayLabel.TextXAlignment = Enum.TextXAlignment.Left
+    delayLabel.Parent = collectTab
+    
+    -- Delay Slider
+    local delaySliderBg = Instance.new("Frame")
+    delaySliderBg.Size = UDim2.new(1, 0, 0, 8)
+    delaySliderBg.Position = UDim2.new(0, 0, 0, 40)
+    delaySliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    delaySliderBg.BorderSizePixel = 0
+    delaySliderBg.Parent = collectTab
+    
+    local delaySliderBgCorner = Instance.new("UICorner")
+    delaySliderBgCorner.CornerRadius = UDim.new(0, 4)
+    delaySliderBgCorner.Parent = delaySliderBg
+    
+    local delaySlider = Instance.new("Frame")
+    delaySlider.Size = UDim2.new(collectDelay / 3, 0, 1, 0)
+    delaySlider.BackgroundColor3 = Color3.fromRGB(150, 200, 255)
+    delaySlider.BorderSizePixel = 0
+    delaySlider.Parent = delaySliderBg
+    
+    local delaySliderCorner = Instance.new("UICorner")
+    delaySliderCorner.CornerRadius = UDim.new(0, 4)
+    delaySliderCorner.Parent = delaySlider
+    
+    -- Rarity Selection
+    local rarityTitle = Instance.new("TextLabel")
+    rarityTitle.Size = UDim2.new(1, 0, 0, 25)
+    rarityTitle.Position = UDim2.new(0, 0, 0, 60)
+    rarityTitle.BackgroundTransparency = 1
+    rarityTitle.Text = "🎯 Select Rarity:"
+    rarityTitle.TextColor3 = Color3.fromRGB(255, 200, 100)
+    rarityTitle.TextSize = 13
+    rarityTitle.Font = Enum.Font.GothamBold
+    rarityTitle.TextXAlignment = Enum.TextXAlignment.Left
+    rarityTitle.Parent = collectTab
+    
+    local rarityColors = {
+        Celestial = Color3.fromRGB(0, 255, 255),
+        Common = Color3.fromRGB(150, 150, 150),
+        Epic = Color3.fromRGB(200, 100, 255),
+        Godly = Color3.fromRGB(255, 215, 0),
+        Legendary = Color3.fromRGB(255, 100, 100),
+        Mythic = Color3.fromRGB(255, 50, 150),
+        Rare = Color3.fromRGB(100, 150, 255),
+        Secret = Color3.fromRGB(50, 255, 150)
+    }
+    
+    local rarityList = {"Celestial", "Common", "Epic", "Godly", "Legendary", "Mythic", "Rare", "Secret"}
+    
+    for i, rarityName in ipairs(rarityList) do
+        local row = math.floor((i - 1) / 2)
+        local col = (i - 1) % 2
+        
+        local checkboxFrame = Instance.new("TextButton")
+        checkboxFrame.Size = UDim2.new(0, 200, 0, 25)
+        checkboxFrame.Position = UDim2.new(0, col * 210, 0, 90 + row * 30)
+        checkboxFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+        checkboxFrame.BorderSizePixel = 0
+        checkboxFrame.Text = ""
+        checkboxFrame.Parent = collectTab
+        
+        local checkboxCorner = Instance.new("UICorner")
+        checkboxCorner.CornerRadius = UDim.new(0, 6)
+        checkboxCorner.Parent = checkboxFrame
+        
+        local checkbox = Instance.new("Frame")
+        checkbox.Size = UDim2.new(0, 18, 0, 18)
+        checkbox.Position = UDim2.new(0, 5, 0.5, -9)
+        checkbox.BackgroundColor3 = rarityColors[rarityName]
+        checkbox.BorderSizePixel = 0
+        checkbox.Parent = checkboxFrame
+        
+        local checkboxInnerCorner = Instance.new("UICorner")
+        checkboxInnerCorner.CornerRadius = UDim.new(0, 4)
+        checkboxInnerCorner.Parent = checkbox
+        
+        local checkmark = Instance.new("TextLabel")
+        checkmark.Size = UDim2.new(1, 0, 1, 0)
+        checkmark.BackgroundTransparency = 1
+        checkmark.Text = "✓"
+        checkmark.TextColor3 = Color3.fromRGB(255, 255, 255)
+        checkmark.TextSize = 14
+        checkmark.Font = Enum.Font.GothamBold
+        checkmark.Visible = selectedRarities[rarityName]
+        checkmark.Parent = checkbox
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -30, 1, 0)
+        label.Position = UDim2.new(0, 28, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = rarityName
+        label.TextColor3 = rarityColors[rarityName]
+        label.TextSize = 11
+        label.Font = Enum.Font.GothamBold
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = checkboxFrame
+        
+        checkboxFrame.MouseButton1Click:Connect(function()
+            selectedRarities[rarityName] = not selectedRarities[rarityName]
+            checkmark.Visible = selectedRarities[rarityName]
+            
+            if selectedRarities[rarityName] then
+                TweenService:Create(checkbox, TweenInfo.new(0.2), {BackgroundColor3 = rarityColors[rarityName]}):Play()
+            else
+                TweenService:Create(checkbox, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 60, 75)}):Play()
+            end
+        end)
+    end
+    
+    -- Start/Stop Button
+    local collectButton = Instance.new("TextButton")
+    collectButton.Size = UDim2.new(1, 0, 0, 45)
+    collectButton.Position = UDim2.new(0, 0, 0, 220)
+    collectButton.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    collectButton.BorderSizePixel = 0
+    collectButton.Text = "▶️ Start Auto-Collect"
+    collectButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    collectButton.TextSize = 16
+    collectButton.Font = Enum.Font.GothamBold
+    collectButton.Parent = collectTab
+    
+    local collectButtonCorner = Instance.new("UICorner")
+    collectButtonCorner.CornerRadius = UDim.new(0, 10)
+    collectButtonCorner.Parent = collectButton
+    
+    -- ========== EVENT HANDLERS ==========
+    
+    -- Tab Switching
+    flyTabButton.MouseButton1Click:Connect(function()
+        flyTab.Visible = true
+        collectTab.Visible = false
+        flyTabButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        collectTabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        flyTabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        collectTabButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+    end)
+    
+    collectTabButton.MouseButton1Click:Connect(function()
+        flyTab.Visible = false
+        collectTab.Visible = true
+        flyTabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        collectTabButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        flyTabButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+        collectTabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+    
+    -- Fly Speed Slider
+    flySpeedSliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouseX = input.Position.X
+            local sliderX = flySpeedSliderBg.AbsolutePosition.X
+            local sliderWidth = flySpeedSliderBg.AbsoluteSize.X
+            local percentage = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
+            
+            flySpeed = math.floor(percentage * 1000)
+            flySpeedSlider.Size = UDim2.new(percentage, 0, 1, 0)
+            flySpeedLabel.Text = "🚀 Fly Speed: " .. flySpeed
+        end
+    end)
+    
+    -- Height Speed Slider
+    heightSpeedSliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouseX = input.Position.X
+            local sliderX = heightSpeedSliderBg.AbsolutePosition.X
+            local sliderWidth = heightSpeedSliderBg.AbsoluteSize.X
+            local percentage = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
+            
+            heightSpeed = math.floor(percentage * 100)
+            heightSpeedSlider.Size = UDim2.new(percentage, 0, 1, 0)
+            heightSpeedLabel.Text = "⬆️ Up/Down Speed: " .. heightSpeed
+        end
+    end)
+    
+    -- Delay Slider
+    delaySliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouseX = input.Position.X
+            local sliderX = delaySliderBg.AbsolutePosition.X
+            local sliderWidth = delaySliderBg.AbsoluteSize.X
+            local percentage = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
+            
+            collectDelay = math.floor(percentage * 30) / 10
+            if collectDelay < 0.1 then collectDelay = 0.1 end
+            
+            delaySlider.Size = UDim2.new(percentage, 0, 1, 0)
+            delayLabel.Text = "⏱️ Delay: " .. collectDelay .. " sec"
+        end
+    end)
+    
+    -- Collect Button
+    collectButton.MouseButton1Click:Connect(function()
+        if autoCollecting then
+            stopAutoCollect()
+            collectButton.Text = "▶️ Start Auto-Collect"
+            collectButton.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+        else
+            startAutoCollect()
+            collectButton.Text = "⏸️ Stop Collecting"
+            collectButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        end
+    end)
+    
+    -- Draggable
+    local dragging = false
+    local dragInput, mousePos, framePos
+    
+    titleLabel.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            mousePos = input.Position
+            framePos = mainFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    titleLabel.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - mousePos
+            mainFrame.Position = UDim2.new(
+                framePos.X.Scale,
+                framePos.X.Offset + delta.X,
+                framePos.Y.Scale,
+                framePos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    screenGui.Parent = player.PlayerGui
+end
+
+-- ========== INPUT HANDLERS ==========
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    -- Q for flying (changed from E to avoid conflicts with Brainrot collection)
+    if input.KeyCode == Enum.KeyCode.Q then
+        if flying then
+            stopFlying()
+        else
+            startFlying()
+        end
+    end
+    
+    if input.KeyCode == Enum.KeyCode.W then
+        moveDirection.forward = true
+    elseif input.KeyCode == Enum.KeyCode.S then
+        moveDirection.backward = true
+    elseif input.KeyCode == Enum.KeyCode.A then
+        moveDirection.left = true
+    elseif input.KeyCode == Enum.KeyCode.D then
+        moveDirection.right = true
+    elseif input.KeyCode == Enum.KeyCode.Space then
+        moveDirection.up = true
+    elseif input.KeyCode == Enum.KeyCode.LeftShift then
+        moveDirection.down = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.W then
+        moveDirection.forward = false
+    elseif input.KeyCode == Enum.KeyCode.S then
+        moveDirection.backward = false
+    elseif input.KeyCode == Enum.KeyCode.A then
+        moveDirection.left = false
+    elseif input.KeyCode == Enum.KeyCode.D then
+        moveDirection.right = false
+    elseif input.KeyCode == Enum.KeyCode.Space then
+        moveDirection.up = false
+    elseif input.KeyCode == Enum.KeyCode.LeftShift then
+        moveDirection.down = false
+    end
+end)
+
+-- Update every frame
+RunService.RenderStepped:Connect(function()
+    updateFlyDirection()
+end)
+
+-- Handle character respawn
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    stopFlying()
+    stopAutoCollect()
+end)
+
+-- Create GUI
+createGUI()
+
+print("🎮 Combined Script: FLY + AUTO COLLECT ready!")
+print("✈️ Press Q to toggle flying")
+print("🧠 Use GUI to control Auto-Collect Brainrot")
