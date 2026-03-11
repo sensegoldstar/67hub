@@ -111,8 +111,8 @@ WeaponTab:CreateToggle({
                                 task.wait(0.05)
                                 VirtualInputMngr:SendKeyEvent(false, Enum.KeyCode.G, false, game)
                                 
-                                -- วิธีที่ 2: ใช้ Keyboard Press (ถ้า Executor รองรับ)
-                                if keypress then
+                                -- วิธีที่ 2: ใช้ Keyboard Press (สำหรับ PC Executor ที่รองรับ)
+                                if keypress and keyrelease then
                                     task.wait(0.1)
                                     keypress(0x47) -- 0x47 คือปุ่ม 'G'
                                     task.wait(0.05)
@@ -242,10 +242,10 @@ local QUEST_MAP = {
     ["WinterWarden"]    = { npc = "QuestNPC8", label = "Quest 8 • Lv 2000-2999",level = 2000, island = "Snow" },
     ["SorcererStudent"] = { npc = "QuestNPC9", label = "Quest 9 • Lv 3000-3999",level = 3000, island = "Shibuya" },
     ["PandaSorcerer"]   = { npc = "QuestNPC10",label = "Quest 10 • Lv 4000-4999",level= 4000, island = "Shibuya" },
-    ["Hollow"]          = { npc = "QuestNPC11",label = "Quest 11 • Lv 5000-6249",level= 5000, island = "HuecoMundo" },
+    ["Hollow"]          = { npc = "QuestNPC11",label = "Quest 11 • Lv 5000-6249",level= 5000, island = "Hueco Mundo" },
     ["StrongSorcerer"]  = { npc = "QuestNPC12",label = "Quest 12 • Lv 6250-6999",level= 6250, island = "Shinjuku" },
     ["Curse"]           = { npc = "QuestNPC13",label = "Quest 13 • Lv 7000-7999",level= 7000, island = "Shinjuku" },
-    ["SlimeWarrior"]    = { npc = "QuestNPC14",label = "Quest 14 • Lvl 8000-8999",level= 8000, island = "Slime" },
+    ["Slime"]           = { npc = "QuestNPC14",label = "Quest 14 • SlimeWarrior Lvl 8000-8999",level= 8000, island = "Slime Island" },
     ["AcademyTeacher"]  = { npc = "QuestNPC15",label = "Quest 15 • Lvl 9000-10000",level= 9000, island = "Academy" },
     -- เพิ่มมอนเควสเพิ่มได้ที่นี่ (และอย่าลืมใส่ level จะได้เรียงถูก)
 }
@@ -393,10 +393,10 @@ local function scanAndAddMissingMobs()
 
     local foundNew = 0
     for _, obj in ipairs(Workspace_:GetDescendants()) do
-        if obj:IsA("Model") and obj ~= Character then
+        if obj:IsA("Model") and obj ~= Character and not string.find(obj.Name, "NPC") then
             local hum = obj:FindFirstChildOfClass("Humanoid")
-            -- กรองเอาเฉพาะตัวที่มีเลือดเยอะกว่า 100 และในชื่อห้ามมีคำว่า NPC เพื่อตัดแม่ค้า/พ่อค้าออก
-            if hum and hum.MaxHealth > 100 and not string.match(obj.Name:lower(), "npc") then
+            -- กรองเอาเฉพาะตัวที่มีเลือดเยอะกว่า 100 เพื่อตัดแม่ค้า/พ่อค้าออก (string.find("NPC") ถูกย้ายไปด้านบนแล้ว)
+            if hum and hum.MaxHealth > 100 then
                 local prefix = obj.Name:match("^(%a+)") or obj.Name:sub(1,8)
                 if prefix ~= "" and not seen[prefix] then
                     seen[prefix] = true
@@ -500,14 +500,14 @@ local function updateMobCache()
     
     for i = 1, #worldMobs do
         local obj = worldMobs[i]
-        if obj and obj:IsA("Model") and obj ~= myChar then
+        if obj and obj:IsA("Model") and obj ~= myChar and not string.find(obj.Name, "NPC") then
             local hum = obj:FindFirstChildOfClass("Humanoid")
             if hum then
-                local cleanName = obj.Name:gsub("[^%w]", "")
+                local cleanName = obj.Name:gsub("%s+", ""):lower()
                 -- ตรวจสอบว่าชื่อมอนสเตอร์มี prefix ที่เราติ๊กเลือกไว้หรือไม่
                 local isSelected = false
                 for prefix, isEn in pairs(selectedMobPrefixes) do
-                    local cleanPrefix = prefix:gsub("[^%w]", "")
+                    local cleanPrefix = prefix:gsub("%s+", ""):lower()
                     if isEn and string.find(cleanName, cleanPrefix, 1, true) then
                         isSelected = true
                         _G.loadedSelectedPrefixes[prefix] = true
@@ -589,39 +589,47 @@ local function teleportBehindMob(mob)
             targetCFrame = CFrame.lookAt(behindPos.Position, anchor.Position)
         end
         
-        -- ถ้าอยู่ไกลมากกว่า 1500 studs ให้ใช้วิธีบิน (Tween) ไปหา เพื่อแก้โดนเด้งกลับ
+        -- ถ้าอยู่ไกลมากกว่า 1500 studs แปลว่าข้ามเกาะ การบิน (Tween) หรือวาร์ปสดจะโดนเตะ (Error 267) ทันที
+        -- ต้องใช้วิธีเข้า Portal แบบลัด (Fast Portal) เพื่อ Bypass Anti-Cheat
         local dist = (root.Position - anchor.Position).Magnitude
         if dist > 1500 then
-            if not _G.isTweening then
-                _G.isTweening = true
-                -- บินตรงไปด้วยความเร็วที่ปลอดภัย (80 studs/s) ช้าลงนิดนึงเพื่อความชัวร์เวลาบินข้ามเกาะไกลๆ
-                local tweenTime = dist / 80 
-                local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
-                
-                local noclipConnection = RunService.Stepped:Connect(function()
-                    if Character then
-                        for _, v in ipairs(Character:GetDescendants()) do
-                            if v:IsA("BasePart") then
-                                v.CanCollide = false
-                            end
-                        end
-                    end
-                end)
-                
-                pcall(function()
-                    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
-                    tween:Play()
-                    task.wait(tweenTime)
-                end)
-                
-                if noclipConnection then noclipConnection:Disconnect() end
-                
-                -- บังคับวาร์ปลงจุดสุดท้ายกันพลาด
-                root.CFrame = targetCFrame
-                _G.isTweening = false
+            local targetIsland = nil
+            local cleanName = mob.Name:gsub("%s+", ""):lower()
+            
+            -- หาว่ามอนตัวนี้อยู่เกาะไหนจาก QUEST_MAP
+            for prefix, mapped in pairs(QUEST_MAP) do
+                if string.find(cleanName, prefix:gsub("%s+", ""):lower(), 1, true) then
+                    targetIsland = mapped.island
+                    break
+                end
             end
+            
+            if targetIsland and not _G.isIslandHopping then
+                _G.isIslandHopping = true
+                
+                -- หน่วงเวลาล่วงหน้าเพื่อป้องกันบัค Error 773 (สแปม Portal รัวๆ จนหลุด)
+                if tick() - (_G.lastPortalHop or 0) > 5 then
+                    _G.lastPortalHop = tick()
+                    pcall(function()
+                        FarmStatus:Set({ Title = "✈️ สลับเกาะ (ลัด)", Content = "วาร์ปไป: " .. targetIsland })
+                        game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland)
+                    end)
+                    
+                    -- รอโหลดแปปเดียว (0.5วิ) เพื่อความไวสุดขีด แล้วลุยต่อเลย
+                    task.wait(0.5)
+                    
+                    -- กันเด้งทะลุแมพตอนสปอนด์
+                    if Character and Character:FindFirstChild("HumanoidRootPart") then
+                         Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
+                    end
+                end
+                
+                _G.isIslandHopping = false
+            end
+            
+            -- ปล่อยผ่านไปให้ลูปรอบหน้ามาจัดการวาปเข้าหลังมอนระยะประชิด
         else
-            -- ถ้าอยู่ใกล้ๆ วาปชึบเข้าข้างหลังเลย
+            -- ถ้าอยู่ใกล้ๆ (เกาะเดียวกัน) วาปชึบเข้าข้างหลังเลย
             if _G.isTweening then
                 _G.isTweening = false
             end
@@ -799,15 +807,18 @@ FarmTab:CreateToggle({
                                     if targetIsland then
                                         _G.isIslandHopping = true
                                         task.spawn(function()
-                                            pcall(function()
-                                                FarmStatus:Set({ Title = "✈️ กำลังบินข้ามเกาะ...", Content = "วาร์ปไปโหลดมอนที่เกาะ: " .. targetIsland })
-                                                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland)
-                                            end)
-                                            -- รอให้มอน Stream In (โหลดเข้าแมพ)
-                                            task.wait(3)
-                                            -- โยกตำแหน่งจากจุดวาปขึ้นปล่องเพื่อไม่ให้ติด
-                                            if Character and Character:FindFirstChild("HumanoidRootPart") then
-                                                 Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
+                                            if tick() - (_G.lastPortalHop or 0) > 5 then
+                                                _G.lastPortalHop = tick()
+                                                pcall(function()
+                                                    FarmStatus:Set({ Title = "✈️ กำลังบินข้ามเกาะ...", Content = "วาร์ปไปโหลดมอนที่เกาะ: " .. targetIsland })
+                                                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland)
+                                                end)
+                                                -- รอให้มอน Stream In (โหลดเข้าแมพ)
+                                                task.wait(3)
+                                                -- โยกตำแหน่งจากจุดวาปขึ้นปล่องเพื่อไม่ให้ติด
+                                                if Character and Character:FindFirstChild("HumanoidRootPart") then
+                                                     Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
+                                                end
                                             end
                                             task.wait(1)
                                             _G.isIslandHopping = false
