@@ -279,7 +279,6 @@ end
 -- TAB 2 — Quest
 -- ============================================================
 local QuestTab = Window:CreateTab("📜 Quest", 4483362458)
-QuestTab:CreateSection("ตาราง Mob ↔ Quest")
 
 -- ลิสต์สำหรับเรียงตามเลเวล
 local sortedQuests = {}
@@ -287,11 +286,6 @@ for prefix, q in pairs(QUEST_MAP) do
     table.insert(sortedQuests, { prefix = prefix, npc = q.npc, label = q.label, level = q.level or 0 })
 end
 table.sort(sortedQuests, function(a, b) return a.level < b.level end)
-
-QuestTab:CreateLabel("Mobs ที่ผูกเควสไว้:")
-for _, q in ipairs(sortedQuests) do
-    QuestTab:CreateLabel("🟡 " .. q.prefix .. "  →  " .. q.label .. "  [" .. q.npc .. "]")
-end
 
 QuestTab:CreateSection("Accept Quest ด้วยตนเอง")
 
@@ -595,12 +589,14 @@ local function teleportBehindMob(mob)
             targetCFrame = CFrame.lookAt(behindPos.Position, anchor.Position)
         end
         
-        -- ถ้าอยู่ไกลมากกว่า 1500 studs ให้ใช้วิธีทยอยวาร์ป (Chunk Teleport) แทนการบินยาว
-        -- การบินยาวๆ (Tween) ถึงจะช้าก็มักจะโดนจับ Anti-Cheat (Error 267) เพราะ Velocity ผิดปกติ
+        -- ถ้าอยู่ไกลมากกว่า 1500 studs ให้ใช้วิธีบิน (Tween) ไปหา เพื่อแก้โดนเด้งกลับ
         local dist = (root.Position - anchor.Position).Magnitude
         if dist > 1500 then
             if not _G.isTweening then
                 _G.isTweening = true
+                -- บินตรงไปด้วยความเร็วที่ปลอดภัย (80 studs/s) ช้าลงนิดนึงเพื่อความชัวร์เวลาบินข้ามเกาะไกลๆ
+                local tweenTime = dist / 80 
+                local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
                 
                 local noclipConnection = RunService.Stepped:Connect(function()
                     if Character then
@@ -613,33 +609,9 @@ local function teleportBehindMob(mob)
                 end)
                 
                 pcall(function()
-                    -- ความเร็วในการวาร์ปแต่ละก้าว (ห้ามเกิน 300-400 ต่อวินาที ไม่งั้นโดนเตะ)
-                    local stepDistance = 200 
-                    local currentDist = (root.Position - targetCFrame.Position).Magnitude
-                    
-                    while currentDist > stepDistance and _G.isTweening do
-                        -- วาร์ปไปข้างหน้าทีละนิด (stepDistance)
-                        local lerpAlpha = stepDistance / currentDist
-                        root.CFrame = root.CFrame:Lerp(targetCFrame, lerpAlpha)
-                        
-                        -- เคลียร์ความเร็วฟิสิกส์กันหน้าทิ่ม
-                        root.Velocity = Vector3.new(0, 0, 0)
-                        root.RotVelocity = Vector3.new(0, 0, 0)
-                        
-                        task.wait(0.05) -- หยุดพักสั้นๆ ให้เซิร์ฟเวอร์อัพเดทตำแหน่ง (ยิ่งน้อยยิ่งเร็ว แต่เสี่ยงบิน)
-                        
-                        -- เช็คระยะใหม่
-                        if root and targetCFrame then
-                             currentDist = (root.Position - targetCFrame.Position).Magnitude
-                        else
-                             break
-                        end
-                    end
-                    
-                    -- ก้าวสุดท้ายให้ถึงตัวเป๊ะๆ
-                    if _G.isTweening and root then
-                        root.CFrame = targetCFrame
-                    end
+                    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
+                    tween:Play()
+                    task.wait(tweenTime)
                 end)
                 
                 if noclipConnection then noclipConnection:Disconnect() end
