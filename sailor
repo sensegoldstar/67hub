@@ -239,7 +239,7 @@ local QUEST_MAP = {
     ["DesertBandit"]    = { npc = "QuestNPC5", label = "Quest 5 • Lv 750-999",  level = 750,  island = "Desert" },
     ["DesertBoss"]      = { npc = "QuestNPC6", label = "Quest 6 • Lv 1000-1499",level = 1000, island = "Desert" },
     ["FrostRogue"]      = { npc = "QuestNPC7", label = "Quest 7 • Lv 1500-1999",level = 1500, island = "Snow" },
-    ["WinterWarden"]    = { npc = "QuestNPC8", label = "Quest 8 • Lv 2000-2999",level = 2000, island = "Snow" },
+    ["SnowBoss"]        = { npc = "QuestNPC8", label = "Quest 8 • Lv 2000-2999",level = 2000, island = "Snow" },
     ["SorcererStudent"] = { npc = "QuestNPC9", label = "Quest 9 • Lv 3000-3999",level = 3000, island = "Shibuya" },
     ["PandaSorcerer"]   = { npc = "QuestNPC10",label = "Quest 10 • Lv 4000-4999",level= 4000, island = "Shibuya" },
     ["Hollow"]          = { npc = "QuestNPC11",label = "Quest 11 • Lv 5000-6249",level= 5000, island = "Hueco Mundo" },
@@ -343,8 +343,8 @@ FarmTab:CreateSection("เลือก Mob")
 
 -- ── State ─────────────────────────────────────────────────────
 local selectedMobPrefixes = {}   -- set of selected prefix keys
-local attackRange         = 10   -- studs
-local teleportPosition    = "ด้านหลัง (Behind)" --ตำแหน่งเริ่มต้น
+local attackRange         = 7   -- studs
+local teleportPosition    = "ด้านบน (Above)" --ตำแหน่งเริ่มต้น
 local autoFarmEnabled     = false
 local autoFarmThread      = nil
 
