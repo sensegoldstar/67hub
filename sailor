@@ -1,7 +1,6 @@
 -- ============================================================
 -- Sailor Piece Tools — Rayfield GUI
 -- Weapons | Auto Quest | Auto Farm (with Mob Picker + Range)
--- Update: เพิ่มระบบปิดหน้าต่าง UI Teleport อัตโนมัติหลังวาร์ปเสร็จ
 -- ============================================================
 
 local Players           = game:GetService("Players")
@@ -61,7 +60,9 @@ local function equipTool(tool)
     if not Character then return end
     local hum = Character:FindFirstChildOfClass("Humanoid")
     if hum then
-        if tool.Parent ~= Character then hum:EquipTool(tool) end
+        if tool.Parent ~= Character then
+            hum:EquipTool(tool)
+        end
     else
         local currentBackpack = LocalPlayer:FindFirstChild("Backpack")
         for _, item in ipairs(Character:GetChildren()) do
@@ -71,11 +72,13 @@ local function equipTool(tool)
     end
 end
 
+-- Paragraph แสดงรายการอาวุธ
 local WeaponListParagraph = WeaponTab:CreateParagraph({
     Title   = "รายการอาวุธ",
     Content = "กด Scan Weapons เพื่อดูรายการ"
 })
 
+-- ── Auto Haki ────────────────────────────────────────────────
 local autoHakiEnabled = false
 local autoHakiConnection = nil
 local lastHakiPress = 0
@@ -90,9 +93,11 @@ WeaponTab:CreateToggle({
             autoHakiConnection:Disconnect()
             autoHakiConnection = nil
         end
+        
         if val then
             autoHakiConnection = RunService.Heartbeat:Connect(function()
                 if not autoHakiEnabled then return end
+                
                 local now = tick()
                 if now - lastHakiPress >= 15 then
                     local myChar = LocalPlayer.Character
@@ -101,11 +106,17 @@ WeaponTab:CreateToggle({
                         if hum and hum.Health > 0 then
                             lastHakiPress = now
                             pcall(function()
+                                -- วิธีที่ 1: ใช้ VirtualInputManager (แบบเจาะจง Focus)
                                 VirtualInputMngr:SendKeyEvent(true, Enum.KeyCode.G, false, game)
                                 task.wait(0.05)
                                 VirtualInputMngr:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+                                
+                                -- วิธีที่ 2: ใช้ Keyboard Press (สำหรับ PC Executor ที่รองรับ)
                                 if keypress and keyrelease then
-                                    task.wait(0.1); keypress(0x47); task.wait(0.05); keyrelease(0x47)
+                                    task.wait(0.1)
+                                    keypress(0x47) -- 0x47 คือปุ่ม 'G'
+                                    task.wait(0.05)
+                                    keyrelease(0x47)
                                 end
                             end)
                         end
@@ -115,34 +126,69 @@ WeaponTab:CreateToggle({
         end
     end,
 })
+-- LocalPlayer.CharacterAdded มีอยู่แล้วตอนต้นไฟล์ จะดึง Character ใหม่เวลากลับมาเกิดอัตโนมัติ 
+-- ทำให้ลูป Auto Haki และ Auto Equip รู้จักตัวละครใหม่เอง
 
-WeaponTab:CreateInput({ Name = "ชื่ออาวุธที่ต้องการจะถือ", PlaceholderText = "เช่น Katana", RemoveTextAfterFocusLost = false, Callback = function(val) typedWeaponName = val end })
+-- Input พิมพ์ชื่ออาวุธที่ต้องการ
+WeaponTab:CreateInput({
+    Name                  = "ชื่ออาวุธที่ต้องการจะถือ",
+    PlaceholderText       = "เช่น Katana หรือ Combat",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(val)
+        typedWeaponName = val
+    end,
+})
 
 WeaponTab:CreateButton({
     Name     = "🔍 Scan Weapons",
     Callback = function()
         toolCache = getAllTools()
-        if #toolCache == 0 then WeaponListParagraph:Set({ Title = "รายการอาวุธ", Content = "ไม่พบอาวุธในกระเป๋า" }); return end
+        if #toolCache == 0 then
+            WeaponListParagraph:Set({ Title = "รายการอาวุธ", Content = "ไม่พบอาวุธในกระเป๋า" })
+            return
+        end
         local lines = {}
         for i, t in ipairs(toolCache) do
             local eq = Character:FindFirstChild(t.Name) ~= nil
             table.insert(lines, (eq and "✅ " or "  ") .. i .. ". " .. t.Name)
         end
-        WeaponListParagraph:Set({ Title   = "พบ " .. #toolCache .. " อาวุธ", Content = table.concat(lines, "\n") })
+        WeaponListParagraph:Set({
+            Title   = "พบ " .. #toolCache .. " อาวุธ",
+            Content = table.concat(lines, "\n")
+        })
     end,
 })
 
 WeaponTab:CreateButton({
     Name     = "⚔️ Equip อาวุธที่พิมพ์",
     Callback = function()
-        if typedWeaponName == "" then Rayfield:Notify({ Title = "⚠️", Content = "พิมพ์ชื่ออาวุธในช่อง Input ก่อน", Duration = 3 }); return end
+        if typedWeaponName == "" then
+            Rayfield:Notify({ Title = "⚠️", Content = "พิมพ์ชื่ออาวุธในช่อง Input ก่อน", Duration = 3 })
+            return
+        end
         if #toolCache == 0 then toolCache = getAllTools() end
+        -- ค้นหาชื่อตรงหรือ contains
         local found = nil
-        for _, t in ipairs(toolCache) do if t.Name:lower() == typedWeaponName:lower() then found = t; break end end
-        if not found then for _, t in ipairs(toolCache) do if t.Name:lower():find(typedWeaponName:lower(), 1, true) then found = t; break end end end
+        for _, t in ipairs(toolCache) do
+            if t.Name:lower() == typedWeaponName:lower() then
+                found = t; break
+            end
+        end
+        -- ถ้าไม่ตรง ลอง contains
+        if not found then
+            for _, t in ipairs(toolCache) do
+                if t.Name:lower():find(typedWeaponName:lower(), 1, true) then
+                    found = t; break
+                end
+            end
+        end
         if found then
-            pcall(equipTool, found)
-            Rayfield:Notify({ Title = "✅ Equipped", Content = "ถือ: " .. found.Name, Duration = 2 })
+            local ok, err = pcall(equipTool, found)
+            if ok then
+                Rayfield:Notify({ Title = "✅ Equipped", Content = "ถือ: " .. found.Name, Duration = 2 })
+            else
+                Rayfield:Notify({ Title = "❌ Error", Content = tostring(err), Duration = 4 })
+            end
         else
             Rayfield:Notify({ Title = "⚠️ ไม่พบ", Content = "ไม่มีอาวุธชื่อ '" .. typedWeaponName .. "'", Duration = 3 })
         end
@@ -161,9 +207,17 @@ WeaponTab:CreateToggle({
                     if typedWeaponName ~= "" then
                         local tools = getAllTools()
                         local found = nil
-                        for _, t in ipairs(tools) do if t.Name:lower() == typedWeaponName:lower() then found = t; break end end
-                        if not found then for _, t in ipairs(tools) do if t.Name:lower():find(typedWeaponName:lower(), 1, true) then found = t; break end end end
-                        if found and found.Parent ~= Character then pcall(equipTool, found) end
+                        for _, t in ipairs(tools) do
+                            if t.Name:lower() == typedWeaponName:lower() then found = t; break end
+                        end
+                        if not found then
+                            for _, t in ipairs(tools) do
+                                if t.Name:lower():find(typedWeaponName:lower(), 1, true) then found = t; break end
+                            end
+                        end
+                        if found and found.Parent ~= Character then
+                            pcall(equipTool, found)
+                        end
                     end
                 end
             end)
@@ -172,9 +226,12 @@ WeaponTab:CreateToggle({
 })
 
 -- ============================================================
--- QUEST MAP
+-- QUEST MAP — ผูก Mob Prefix เข้ากับ Quest NPC
+-- เพิ่ม/แก้ไข mapping ได้ที่นี่
+-- เรียงลำดับ Level ได้ตามต้องการ มอนที่ไม่มีในนี้จะไม่โชว์ในแท็บหน้า Farm
 -- ============================================================
 local QUEST_MAP = {
+    -- ["Mob prefix"] = { npc = "QuestNPCxx", label = "ชื่อเควสใน UI", level = ตัวเลขสำหรับเรียง, island = "เกาะที่มอนเกิด" }
     ["Thief"]           = { npc = "QuestNPC1", label = "Quest 1 • Lv 0-99",     level = 0,    island = "Starter" },
     ["ThiefBoss"]       = { npc = "QuestNPC2", label = "Quest 2 • Lv 100-249",  level = 100,  island = "Starter" },
     ["Monkey"]          = { npc = "QuestNPC3", label = "Quest 3 • Lv 250-499",  level = 250,  island = "Jungle" },
@@ -183,35 +240,360 @@ local QUEST_MAP = {
     ["DesertBoss"]      = { npc = "QuestNPC6", label = "Quest 6 • Lv 1000-1499",level = 1000, island = "Desert" },
     ["FrostRogue"]      = { npc = "QuestNPC7", label = "Quest 7 • Lv 1500-1999",level = 1500, island = "Snow" },
     ["SnowBoss"]        = { npc = "QuestNPC8", label = "Quest 8 • Lv 2000-2999",level = 2000, island = "Snow" },
-    ["StrongSorcerer"]  = { npc = "QuestNPC9", label = "Quest 9 • Lv 3000-3999",level = 3000, island = "Shibuya Station" },
-    ["PandaSorcerer"]   = { npc = "QuestNPC10",label = "Quest 10 • Lv 4000-4999",level= 4000, island = "Shibuya Station" },
-    ["Hallow"]          = { npc = "QuestNPC11",label = "Quest 11 • Lv 5000-6249",level= 5000, island = "Hueco Mundo" },
-    ["Curse"]           = { npc = "QuestNPC12",label = "Quest 12 • Lv 7000-7999",level= 7000, island = "Shinjuku" },
-    ["Slime"]           = { npc = "QuestNPC13",label = "Quest 13 • Lvl 8000-8999",level= 8000, island = "Slime" },
-    ["AcademyTeacher"]  = { npc = "QuestNPC14",label = "Quest 14 • Lvl 9000-10000",level= 9000, island = "Academy" },
-    ["Quincy"]          = { npc = "QuestNPC15",label = "Quest 15 • Quincy Lvl 10750+", level= 10750, island = "Soul Society" },
+    ["SorcererStudent"] = { npc = "QuestNPC9", label = "Quest 9 • Lv 3000-3999",level = 3000, island = "Shibuya" },
+    ["PandaSorcerer"]   = { npc = "QuestNPC10",label = "Quest 10 • Lv 4000-4999",level= 4000, island = "Shibuya" },
+    ["Hollow"]          = { npc = "QuestNPC11",label = "Quest 11 • Lv 5000-6249",level= 5000, island = "Hueco Mundo" },
+    ["StrongSorcerer"]  = { npc = "QuestNPC12",label = "Quest 12 • Lv 6250-6999",level= 6250, island = "Shinjuku" },
+    ["Curse"]           = { npc = "QuestNPC13",label = "Quest 13 • Lv 7000-7999",level= 7000, island = "Shinjuku" },
+    ["Slime"]           = { npc = "QuestNPC14",label = "Quest 14 • SlimeWarrior Lvl 8000-8999",level= 8000, island = "Slime Island" },
+    ["AcademyTeacher"]  = { npc = "QuestNPC15",label = "Quest 15 • Lvl 9000-10000",level= 9000, island = "Academy" },
+    -- เพิ่มมอนเควสเพิ่มได้ที่นี่ (และอย่าลืมใส่ level จะได้เรียงถูก)
 }
 
-local selectedMobPrefixes = {}   
-local attackRange         = 7   
-local teleportPosition    = "ด้านบน (Above)" 
-local tweenSpeed          = 300 
+-- ── รับเควสของมอนที่เลือกที่มีเลเวลสูงที่สุด (Silent) ────────────────────────
+local function acceptHighestSelectedQuest()
+    local highestLevel = -1
+    local targetNpc = nil
+    
+    for prefix, _ in pairs(selectedMobPrefixes) do
+        local entry = QUEST_MAP[prefix]
+        if entry and entry.level and entry.level > highestLevel then
+            highestLevel = entry.level
+            targetNpc = entry.npc
+        end
+    end
+    
+    if targetNpc then
+        -- ยิงรัว 2 รอบเผื่อเซิร์ฟเวอร์ดีเลย์ (เซิร์ฟเวอร์ Roblox มักจะ Dropped Remote บ่อย)
+        for i = 1, 2 do
+            pcall(function()
+                ReplicatedStorage:WaitForChild("RemoteEvents")
+                    :WaitForChild("QuestAccept"):FireServer(targetNpc)
+            end)
+            task.wait(0.1)
+        end
+    end
+end
 
-local FarmStatus = nil 
+-- ============================================================
+-- TAB 2 — Quest
+-- ============================================================
+local QuestTab = Window:CreateTab("📜 Quest", 4483362458)
 
--- ── ระบบบินหาแท่นวาร์ป (Island Hopping Helper) ─────────────────────────
+-- ลิสต์สำหรับเรียงตามเลเวล
+local sortedQuests = {}
+for prefix, q in pairs(QUEST_MAP) do
+    table.insert(sortedQuests, { prefix = prefix, npc = q.npc, label = q.label, level = q.level or 0 })
+end
+table.sort(sortedQuests, function(a, b) return a.level < b.level end)
+
+QuestTab:CreateSection("Accept Quest ด้วยตนเอง")
+
+local questAutoEnabled = false
+
+local function doAcceptQuest(npc)
+    npc = npc or "QuestNPC1"
+    local ok, err = pcall(function()
+        ReplicatedStorage:WaitForChild("RemoteEvents")
+            :WaitForChild("QuestAccept"):FireServer(npc)
+    end)
+    Rayfield:Notify({
+        Title   = ok and "✅ Quest" or "❌ Quest Error",
+        Content = ok and ("รับเควส [" .. npc .. "] สำเร็จ!") or tostring(err),
+        Duration = 3,
+    })
+end
+
+-- ปุ่มสำหรับแต่ละเควสในตาราง (เรียงตามเลเวลแล้ว)
+local addedNpcs = {}
+for _, q in ipairs(sortedQuests) do
+    if not addedNpcs[q.npc] then
+        addedNpcs[q.npc] = true
+        local npcCopy = q.npc
+        local labelCopy = q.label
+        QuestTab:CreateButton({
+            Name     = "✅ Accept " .. labelCopy,
+            Callback = function() doAcceptQuest(npcCopy) end,
+        })
+    end
+end
+
+QuestTab:CreateToggle({
+    Name         = "🔄 Auto Re-Accept เควสสูงสุดที่เลือกอยู่ (loop ทุก 2s)",
+    CurrentValue = false,
+    Flag         = "AutoQuestToggle",
+    Callback     = function(val)
+        questAutoEnabled = val
+        if val then
+            task.spawn(function()
+                while questAutoEnabled do
+                    acceptHighestSelectedQuest()
+                    task.wait(2) -- ลดรอบหมุนลงให้มันรับไวยิ่งขึ้น
+                end
+            end)
+        end
+    end,
+})
+
+-- ============================================================
+-- TAB 3 — Auto Farm
+-- ============================================================
+local FarmTab = Window:CreateTab("🗡️ Auto Farm", 4483362458)
+FarmTab:CreateSection("เลือก Mob")
+
+-- ── State ─────────────────────────────────────────────────────
+local selectedMobPrefixes = {}   -- set of selected prefix keys
+local attackRange         = 7   -- studs
+local teleportPosition    = "ด้านบน (Above)" --ตำแหน่งเริ่มต้น
+local tweenSpeed          = 300 -- studs per second
+local autoFarmEnabled     = false
+local autoFarmThread      = nil
+
+-- ── Generate pre-defined sorted mob toggles ────────────────────────
+local mobButtonList = {}  
+
+local function setupAutoMobToggles()
+    -- ดึงคีย์ทั้งหมดมาจัดเรียงตามเลเวลจาก QUEST_MAP
+    local sortedMobs = {}
+    for prefix, info in pairs(QUEST_MAP) do
+        table.insert(sortedMobs, { prefix = prefix, level = info.level or 0, label = info.label })
+    end
+    table.sort(sortedMobs, function(a, b) return a.level < b.level end)
+
+    selectedMobPrefixes = {}
+
+    -- สร้างปุ่มตามลำดับที่เรียง
+    for _, entry in ipairs(sortedMobs) do
+        local displayName = "🎯 " .. entry.prefix .. "  [" .. entry.label .. "]"
+        FarmTab:CreateToggle({
+            Name         = displayName,
+            CurrentValue = false,
+            Flag         = "MobToggle_" .. entry.prefix,
+            Callback     = function(val)
+                if val then
+                    selectedMobPrefixes[entry.prefix] = true
+                else
+                    selectedMobPrefixes[entry.prefix] = nil
+                end
+            end,
+        })
+    end
+end
+
+-- สร้างปุ่มอัตโนมัติตอนรันสคริปต์
+setupAutoMobToggles()
+
+-- ── สแกนมอนสเตอรที่ไม่มีในรายชื่อ (Auto) ────────────────────────
+local dynamicMobToggles = {}
+
+local function scanAndAddMissingMobs()
+    local seen = {}
+    for prefix, _ in pairs(QUEST_MAP) do
+        seen[prefix] = true
+    end
+
+    local foundNew = 0
+    for _, obj in ipairs(Workspace_:GetDescendants()) do
+        if obj:IsA("Model") and obj ~= Character and not string.find(obj.Name, "NPC") then
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            -- กรองเอาเฉพาะตัวที่มีเลือดเยอะกว่า 100 เพื่อตัดแม่ค้า/พ่อค้าออก (string.find("NPC") ถูกย้ายไปด้านบนแล้ว)
+            if hum and hum.MaxHealth > 100 then
+                local prefix = obj.Name:match("^(%a+)") or obj.Name:sub(1,8)
+                if prefix ~= "" and not seen[prefix] then
+                    seen[prefix] = true
+                    foundNew = foundNew + 1
+                    
+                    local tgl = FarmTab:CreateToggle({
+                        Name         = "🔍 [สแกนเจอ] " .. prefix,
+                        CurrentValue = false,
+                        Flag         = "MobToggle_Dynamic_" .. prefix,
+                        Callback     = function(val)
+                            if val then
+                                selectedMobPrefixes[prefix] = true
+                            else
+                                selectedMobPrefixes[prefix] = nil
+                            end
+                        end,
+                    })
+                    table.insert(dynamicMobToggles, tgl)
+                end
+            end
+        end
+    end
+
+    if foundNew > 0 then
+        Rayfield:Notify({ Title = "Scan Mobs", Content = "เพิ่มมอนใหม่ " .. foundNew .. " ตัวลงในเมนูแล้ว", Duration = 3 })
+    else
+        Rayfield:Notify({ Title = "Scan Mobs", Content = "ไม่พบมอนสเตอร์ชนิดใหม่ในละแวกนี้", Duration = 3 })
+    end
+end
+
+FarmTab:CreateSection("สแกนมอนเพิ่มเติม")
+FarmTab:CreateButton({ Name = "🔍 สแกนหามอนรอบตัว (ที่ไม่มีในรายชื่อ)", Callback = scanAndAddMissingMobs })
+
+-- ── Auto Skills State ─────────────────────────────────────────
+local autoSkills = {
+    Z = false,
+    X = false,
+    C = false,
+    V = false,
+    F = false
+}
+local skillCooldownTimer = 0
+local currentSkillIdx = 1
+local skillOrder = {"Z", "X", "C", "V", "F"}
+local skillKeycodes = {
+    Z = Enum.KeyCode.Z,
+    X = Enum.KeyCode.X,
+    C = Enum.KeyCode.C,
+    V = Enum.KeyCode.V,
+    F = Enum.KeyCode.F
+}
+
+FarmTab:CreateSection("ตั้งค่าการใช้สกิลอัตโนมัติ (Skills Z,X,C,V,F)")
+
+-- สร้าง toggle สำเร็จรูปสำหรับแต่ละสกิล
+for _, key in ipairs(skillOrder) do
+    FarmTab:CreateToggle({
+        Name         = "ปล่อยสกิล " .. key .. " อัตโนมัติ",
+        CurrentValue = false,
+        Flag         = "AutoSkill_" .. key,
+        Callback     = function(val)
+            autoSkills[key] = val
+        end,
+    })
+end
+
+FarmTab:CreateSection("ระบบฟาร์มหลัก")
+
+local farmConnection = nil
+local autoFarmEnabled = false
+
+-- ── Farm Status ───────────────────────────────────────────────
+local FarmStatus = FarmTab:CreateParagraph({
+    Title   = "สถานะ",
+    Content = "ปิดอยู่ — Scan Mob ก่อน แล้วติ๊กมอนที่ต้องการ"
+})
+
+-- ── Find nearest selected mob ─────────────────────────────────
+local function getMobAnchor(obj)
+    -- คืน BasePart สำหรับตำแหน่งมอน (เผื่อไม่ต้องมี HumanoidRootPart)
+    local anchor = obj:FindFirstChild("HumanoidRootPart")
+        or obj:FindFirstChild("Torso")
+        or obj:FindFirstChild("UpperTorso")
+        or obj.PrimaryPart
+    
+    if anchor and anchor:IsA("BasePart") then return anchor end
+    
+    -- ค้นหาชิ้นส่วนแรกที่เจอในโมเดลเพื่อให้มีจุดวาปไปหาให้ได้
+    for _, child in ipairs(obj:GetDescendants()) do
+        if child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
+            return child
+        end
+    end
+    
+    return nil
+end
+
+local mobCache = {}
+local lastCacheTick = 0
+
+local function updateMobCache()
+    local now = tick()
+    if now - lastCacheTick < 1 then return end
+    lastCacheTick = now
+    
+    local newCache = {}
+    local myChar = LocalPlayer.Character
+    local worldMobs = Workspace_:GetDescendants()
+    
+    _G.loadedSelectedPrefixes = {} -- เก็บรายชื่อมอนว่าเกาะไหนถูกโหลดแล้วบ้าง (รวมตัวที่ตายแล้ว)
+    
+    for i = 1, #worldMobs do
+        local obj = worldMobs[i]
+        if obj and obj:IsA("Model") and obj ~= myChar and not string.find(obj.Name, "NPC") then
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local cleanName = obj.Name:gsub("%s+", ""):lower()
+                -- ตรวจสอบว่าชื่อมอนสเตอร์มี prefix ที่เราติ๊กเลือกไว้หรือไม่
+                local isSelected = false
+                for prefix, isEn in pairs(selectedMobPrefixes) do
+                    local cleanPrefix = prefix:gsub("%s+", ""):lower()
+                    if isEn and string.find(cleanName, cleanPrefix, 1, true) then
+                        isSelected = true
+                        _G.loadedSelectedPrefixes[prefix] = true
+                        break
+                    end
+                end
+                
+                if isSelected and hum.Health > 0 then
+                    table.insert(newCache, obj)
+                end
+            end
+        end
+    end
+    mobCache = newCache
+end
+
+local currentMobTarget = nil
+
+local function findNearestSelectedMob()
+    updateMobCache()
+    Character = LocalPlayer.Character or Character
+    local root = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    
+    -- ล็อคเป้าหมายเดิมไว้จนกว่าจะตาย หรือหายไปจากสารบบ
+    if currentMobTarget and currentMobTarget.Parent then
+        local targetHum = currentMobTarget:FindFirstChildOfClass("Humanoid")
+        if targetHum and targetHum.Health > 0 then
+            -- เช็คชัวร์ๆ ว่ายังอยู่ใน Cache จริงๆ (บางเกมขยะศพไม่ยอมลบ หรือเลือดบัค)
+            local stillExists = false
+            for _, m in ipairs(mobCache) do
+                if m == currentMobTarget then stillExists = true; break end
+            end
+            if stillExists then
+                return currentMobTarget
+            end
+        end
+    end
+    
+    local nearest, bestDist = nil, math.huge
+    for _, obj in ipairs(mobCache) do
+        if obj and obj.Parent then
+            local anchor = getMobAnchor(obj)
+            local hum    = obj:FindFirstChildOfClass("Humanoid")
+            if anchor and hum and hum.Health > 0 then
+                local d = (anchor.Position - root.Position).Magnitude
+                if d < bestDist then nearest = obj; bestDist = d end
+            end
+        end
+    end
+    
+    currentMobTarget = nearest
+    return nearest
+end
+
+-- ── Teleport ──────────────────────────────────────────────────
+-- _G.isTweening เพื่อป้องกันการวาปซ้อนทับกันเวลาบินไกลๆ
+_G.isTweening = false
+
 local function TweenFunction(targetCFrame, speed)
     Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local root = Character and Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
     local dist = (root.Position - targetCFrame.Position).Magnitude
-    if dist < 1 then root.CFrame = targetCFrame; return end
+    if dist < 1 then 
+        root.CFrame = targetCFrame
+        return 
+    end
 
     local moveSpeed = speed or tweenSpeed
     local timeToMove = dist / moveSpeed
     local tweenInfo = TweenInfo.new(timeToMove, Enum.EasingStyle.Linear)
 
+    -- ตรวจสอบ FarmFloat จะได้บินแบบไม่ร่วง
     local bv = root:FindFirstChild("FarmFloat")
     if not bv then
         bv = Instance.new("BodyVelocity")
@@ -229,6 +611,7 @@ local function TweenFunction(targetCFrame, speed)
     local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
     _G.currentTween = tween
     tween:Play()
+    
     tween.Completed:Wait()
     _G.isTweening = false
     
@@ -236,299 +619,6 @@ local function TweenFunction(targetCFrame, speed)
         root.Velocity = Vector3.new(0, 0, 0)
         root.RotVelocity = Vector3.new(0, 0, 0)
     end
-end
-
--- ฟังก์ชันสำหรับซ่อน/ปิดหน้าต่าง Teleport ที่ค้างอยู่บนจอ
-local function CloseTeleportUI()
-    pcall(function()
-        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then
-            for _, gui in ipairs(pg:GetChildren()) do
-                if gui:IsA("ScreenGui") and gui.Enabled then
-                    local n = gui.Name:lower()
-                    -- ถ้าชื่อ UI มีคำเหล่านี้ ให้ซ่อนทันที
-                    if n:find("teleport") or n:find("map") or n:find("portal") then
-                        gui.Enabled = false
-                    else
-                        -- ค้นหาตัวหนังสือข้างในเผื่อเกมตั้งชื่อ ScreenGui เป็นอย่างอื่น
-                        for _, desc in ipairs(gui:GetDescendants()) do
-                            if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.Text:lower():find("teleport") then
-                                gui.Enabled = false
-                                break
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
-
-local function HopToIsland(targetIsland)
-    if _G.isIslandHopping then return end
-    
-    local timeSinceLastHop = tick() - (_G.lastPortalHop or 0)
-    if timeSinceLastHop < 10 then 
-        pcall(function() FarmStatus:Set({ Title = "⏳ รอ Cooldown สลับเกาะ", Content = "รออีก " .. math.ceil(10 - timeSinceLastHop) .. " วินาที..." }) end)
-        return 
-    end
-
-    _G.isIslandHopping = true
-    _G.lastPortalHop = tick()
-
-    task.spawn(function()
-        pcall(function() FarmStatus:Set({ Title = "✈️ กำลังบินข้ามเกาะ...", Content = "กำลังค้นหาแท่นวาร์ปเพื่อไป: " .. targetIsland }) end)
-
-        local portalPart = nil
-        local targetPrompt = nil
-        for _, obj in ipairs(Workspace_:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") then
-                local actText = (obj.ActionText or ""):lower():gsub("%s+", "")
-                local objText = (obj.ObjectText or ""):lower():gsub("%s+", "")
-                local name = obj.Name:lower():gsub("%s+", "")
-                local pName = (obj.Parent and obj.Parent.Name or ""):lower():gsub("%s+", "")
-                
-                if string.find(actText, "openmap") or string.find(objText, "teleport") or 
-                   string.find(actText, "teleport") or string.find(objText, "map") or
-                   string.find(name, "portal") or string.find(pName, "portal") then
-                    portalPart = obj.Parent
-                    targetPrompt = obj
-                    break
-                end
-            end
-        end
-
-        if portalPart and portalPart:IsA("BasePart") then
-            pcall(function() FarmStatus:Set({ Title = "✈️ สลับเกาะ", Content = "เจอแท่นวาร์ปแล้ว กำลังบินไปกด..." }) end)
-            TweenFunction(portalPart.CFrame * CFrame.new(0, 3, 0), tweenSpeed)
-            task.wait(0.5)
-            
-            if targetPrompt and fireproximityprompt then
-                pcall(function() fireproximityprompt(targetPrompt) end)
-                task.wait(0.5)
-            end
-            
-            pcall(function() game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland) end)
-            task.wait(4)
-            
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                 LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
-            end
-            
-            -- ปิดหน้าต่าง UI Teleport ที่ค้างอยู่บนหน้าจอ
-            CloseTeleportUI()
-        else
-            pcall(function() FarmStatus:Set({ Title = "⚠️ สลับเกาะ", Content = "อยู่ไกลแท่นวาร์ปเกินไป (แมพไม่โหลด)\nกำลังรีเซ็ตตัวละครเพื่อกลับจุดเกิด..." }) end)
-            task.wait(1.5)
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.Health = 0 end
-            task.wait(5) 
-        end
-        _G.isIslandHopping = false
-    end)
-end
-
--- ============================================================
--- TAB 2 — Quest
--- ============================================================
-local QuestTab = Window:CreateTab("📜 Quest", 4483362458)
-
-local sortedQuests = {}
-for prefix, q in pairs(QUEST_MAP) do table.insert(sortedQuests, { prefix = prefix, npc = q.npc, label = q.label, level = q.level or 0 }) end
-table.sort(sortedQuests, function(a, b) return a.level < b.level end)
-
-local function acceptHighestSelectedQuest()
-    local highestLevel = -1
-    local targetNpc = nil
-    for prefix, _ in pairs(selectedMobPrefixes) do
-        local entry = QUEST_MAP[prefix]
-        if entry and entry.level and entry.level > highestLevel then highestLevel = entry.level; targetNpc = entry.npc end
-    end
-    if targetNpc then
-        for i = 1, 2 do
-            pcall(function() ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("QuestAccept"):FireServer(targetNpc) end)
-            task.wait(0.1)
-        end
-    end
-end
-
-QuestTab:CreateSection("Accept Quest ด้วยตนเอง")
-local questAutoEnabled = false
-local function doAcceptQuest(npc)
-    npc = npc or "QuestNPC1"
-    local ok, err = pcall(function() ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("QuestAccept"):FireServer(npc) end)
-    Rayfield:Notify({ Title = ok and "✅ Quest" or "❌ Quest Error", Content = ok and ("รับเควส [" .. npc .. "] สำเร็จ!") or tostring(err), Duration = 3 })
-end
-
-local addedNpcs = {}
-for _, q in ipairs(sortedQuests) do
-    if not addedNpcs[q.npc] then
-        addedNpcs[q.npc] = true
-        local npcCopy = q.npc
-        QuestTab:CreateButton({ Name = "✅ Accept " .. q.label, Callback = function() doAcceptQuest(npcCopy) end })
-    end
-end
-
-QuestTab:CreateToggle({
-    Name = "🔄 Auto Re-Accept เควสสูงสุดที่เลือกอยู่ (loop ทุก 2s)", CurrentValue = false, Flag = "AutoQuestToggle",
-    Callback = function(val)
-        questAutoEnabled = val
-        if val then task.spawn(function() while questAutoEnabled do acceptHighestSelectedQuest(); task.wait(2) end end) end
-    end,
-})
-
--- ============================================================
--- TAB 3 — Auto Farm
--- ============================================================
-local FarmTab = Window:CreateTab("🗡️ Auto Farm", 4483362458)
-FarmTab:CreateSection("เลือก Mob")
-
-local function setupAutoMobToggles()
-    local sortedMobs = {}
-    for prefix, info in pairs(QUEST_MAP) do table.insert(sortedMobs, { prefix = prefix, level = info.level or 0, label = info.label }) end
-    table.sort(sortedMobs, function(a, b) return a.level < b.level end)
-    selectedMobPrefixes = {}
-    for _, entry in ipairs(sortedMobs) do
-        FarmTab:CreateToggle({
-            Name = "🎯 " .. entry.prefix .. "  [" .. entry.label .. "]", CurrentValue = false, Flag = "MobToggle_" .. entry.prefix,
-            Callback = function(val) selectedMobPrefixes[entry.prefix] = val and true or nil end,
-        })
-    end
-end
-setupAutoMobToggles()
-
--- ── อัปเดตการค้นหาให้เจาะจงโฟลเดอร์ NPCs ──────────────────────────
-local function scanAndAddMissingMobs()
-    local seen = {}
-    for prefix, _ in pairs(QUEST_MAP) do seen[prefix] = true end
-    local foundNew = 0
-    local npcFolder = Workspace_:FindFirstChild("NPCs")
-    local searchArea = npcFolder and npcFolder:GetChildren() or Workspace_:GetChildren()
-    
-    for _, obj in ipairs(searchArea) do
-        if obj:IsA("Model") and obj ~= Character and not string.find(obj.Name:lower(), "questnpc") then
-            local hum = obj:FindFirstChildOfClass("Humanoid")
-            if hum and hum.MaxHealth > 0 then
-                local prefix = obj.Name:match("^(%a+)") or obj.Name:sub(1,8)
-                if prefix ~= "" and not seen[prefix] then
-                    seen[prefix] = true
-                    foundNew = foundNew + 1
-                    FarmTab:CreateToggle({
-                        Name = "🔍 [สแกนเจอ] " .. prefix, CurrentValue = false, Flag = "MobToggle_Dynamic_" .. prefix,
-                        Callback = function(val) selectedMobPrefixes[prefix] = val and true or nil end,
-                    })
-                end
-            end
-        end
-    end
-    Rayfield:Notify({ Title = "Scan Mobs", Content = foundNew > 0 and ("เพิ่มมอนใหม่ " .. foundNew .. " ตัวลงในเมนูแล้ว") or "ไม่พบมอนสเตอร์ชนิดใหม่ในละแวกนี้", Duration = 3 })
-end
-FarmTab:CreateSection("สแกนมอนเพิ่มเติม")
-FarmTab:CreateButton({ Name = "🔍 สแกนหามอนรอบตัว (ที่ไม่มีในรายชื่อ)", Callback = scanAndAddMissingMobs })
-
-local autoSkills = { Z = false, X = false, C = false, V = false, F = false }
-local skillCooldownTimer = 0
-local currentSkillIdx = 1
-local skillOrder = {"Z", "X", "C", "V", "F"}
-local skillKeycodes = { Z = Enum.KeyCode.Z, X = Enum.KeyCode.X, C = Enum.KeyCode.C, V = Enum.KeyCode.V, F = Enum.KeyCode.F }
-
-FarmTab:CreateSection("ตั้งค่าการใช้สกิลอัตโนมัติ (Skills Z,X,C,V,F)")
-for _, key in ipairs(skillOrder) do
-    FarmTab:CreateToggle({
-        Name = "ปล่อยสกิล " .. key .. " อัตโนมัติ", CurrentValue = false, Flag = "AutoSkill_" .. key,
-        Callback = function(val) autoSkills[key] = val end,
-    })
-end
-
-FarmTab:CreateSection("ระบบฟาร์มหลัก")
-local autoFarmEnabled = false
-local farmConnection = nil
-
-FarmStatus = FarmTab:CreateParagraph({ Title = "สถานะ", Content = "ปิดอยู่ — Scan Mob ก่อน แล้วติ๊กมอนที่ต้องการ" })
-
-local function getMobAnchor(obj)
-    local anchor = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso") or obj.PrimaryPart
-    if anchor and anchor:IsA("BasePart") then return anchor end
-    for _, child in ipairs(obj:GetChildren()) do
-        if child:IsA("BasePart") then return child end
-    end
-    return nil
-end
-
-local mobCache = {}
-local lastCacheTick = 0
-
--- ── ระบบค้นหามอนเจาะจงโฟลเดอร์ NPCs (เร็วสุดๆ และเจอ 100%) ────────────────
-local function updateMobCache()
-    local now = tick()
-    if now - lastCacheTick < 1 then return end
-    lastCacheTick = now
-    
-    local newCache = {}
-    local myChar = LocalPlayer.Character
-    _G.loadedSelectedPrefixes = {} 
-    
-    local searchList = {}
-    local npcFolder = Workspace_:FindFirstChild("NPCs")
-    if npcFolder then
-        for _, child in ipairs(npcFolder:GetChildren()) do table.insert(searchList, child) end
-    else
-        for _, child in ipairs(Workspace_:GetChildren()) do if child:IsA("Model") then table.insert(searchList, child) end end
-    end
-    
-    for _, obj in ipairs(searchList) do
-        if obj and obj:IsA("Model") and obj ~= myChar and not string.find(obj.Name:lower(), "questnpc") then
-            local hum = obj:FindFirstChildOfClass("Humanoid")
-            if hum then
-                local cleanName = obj.Name:gsub("%s+", ""):lower()
-                local isSelected = false
-                
-                for prefix, isEn in pairs(selectedMobPrefixes) do
-                    if isEn then
-                        local cleanPrefix = prefix:gsub("%s+", ""):lower()
-                        if string.find(cleanName, cleanPrefix, 1, true) then
-                            isSelected = true
-                            _G.loadedSelectedPrefixes[prefix] = true
-                            break
-                        end
-                    end
-                end
-                
-                if isSelected and hum.Health > 0 then table.insert(newCache, obj) end
-            end
-        end
-    end
-    mobCache = newCache
-end
-
-local currentMobTarget = nil
-local function findNearestSelectedMob()
-    updateMobCache()
-    Character = LocalPlayer.Character or Character
-    local root = Character and Character:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-    
-    if currentMobTarget and currentMobTarget.Parent then
-        local targetHum = currentMobTarget:FindFirstChildOfClass("Humanoid")
-        if targetHum and targetHum.Health > 0 then
-            local stillExists = false
-            for _, m in ipairs(mobCache) do if m == currentMobTarget then stillExists = true; break end end
-            if stillExists then return currentMobTarget end
-        end
-    end
-    
-    local nearest, bestDist = nil, math.huge
-    for _, obj in ipairs(mobCache) do
-        if obj and obj.Parent then
-            local anchor = getMobAnchor(obj)
-            local hum    = obj:FindFirstChildOfClass("Humanoid")
-            if anchor and hum and hum.Health > 0 then
-                local d = (anchor.Position - root.Position).Magnitude
-                if d < bestDist then nearest = obj; bestDist = d end
-            end
-        end
-    end
-    currentMobTarget = nearest
-    return nearest
 end
 
 local function teleportBehindMob(mob)
@@ -539,42 +629,123 @@ local function teleportBehindMob(mob)
     if root and anchor and anchor:IsA("BasePart") then
         local offset = math.max(1.5, attackRange - 1)
         local targetCFrame = nil
-        if teleportPosition == "ด้านบน (Above)" then targetCFrame = CFrame.lookAt((anchor.CFrame * CFrame.new(0, offset, 0)).Position, anchor.Position)
-        elseif teleportPosition == "ด้านล่าง (Below)" then targetCFrame = CFrame.lookAt((anchor.CFrame * CFrame.new(0, -offset, 0)).Position, anchor.Position)
-        else targetCFrame = CFrame.lookAt((anchor.CFrame * CFrame.new(0, 0, offset)).Position, anchor.Position) end
         
+        -- fallback protection in case anchor has no CFrame somehow
+        if not pcall(function()
+            if teleportPosition == "ด้านบน (Above)" then
+                local overheadPos = anchor.CFrame * CFrame.new(0, offset, 0)
+                targetCFrame = CFrame.lookAt(overheadPos.Position, anchor.Position)
+                
+            elseif teleportPosition == "ด้านล่าง (Below)" then
+                local belowPos = anchor.CFrame * CFrame.new(0, -offset, 0)
+                targetCFrame = CFrame.lookAt(belowPos.Position, anchor.Position)
+                
+            else
+                local behindPos = anchor.CFrame * CFrame.new(0, 0, offset)
+                targetCFrame = CFrame.lookAt(behindPos.Position, anchor.Position)
+            end
+        end) then
+            return false
+        end
+        
+        -- ถ้าอยู่ไกลมากกว่า 1500 studs แปลว่าข้ามเกาะ การบิน (Tween) หรือวาร์ปสดจะโดนเตะ (Error 267) ทันที
+        -- ต้องใช้วิธีเข้า Portal แบบลัด (Fast Portal) เพื่อ Bypass Anti-Cheat
         local dist = (root.Position - anchor.Position).Magnitude
         if dist > 1500 then
             local targetIsland = nil
             local cleanName = mob.Name:gsub("%s+", ""):lower()
+            
+            -- หาว่ามอนตัวนี้อยู่เกาะไหนจาก QUEST_MAP
             for prefix, mapped in pairs(QUEST_MAP) do
-                if string.find(cleanName, prefix:gsub("%s+", ""):lower(), 1, true) then targetIsland = mapped.island; break end
+                if string.find(cleanName, prefix:gsub("%s+", ""):lower(), 1, true) then
+                    targetIsland = mapped.island
+                    break
+                end
             end
-            if targetIsland then HopToIsland(targetIsland) end
-            return false
+            
+            if targetIsland and not _G.isIslandHopping then
+                _G.isIslandHopping = true
+                
+                -- หน่วงเวลาล่วงหน้าเพื่อป้องกันบัค Error 773 และ 267 (สแปม Portal)
+                if tick() - (_G.lastPortalHop or 0) > 15 then
+                    _G.lastPortalHop = tick()
+                    task.spawn(function()
+                        pcall(function()
+                            FarmStatus:Set({ Title = "✈️ สลับเกาะ (ลัด)", Content = "วาร์ปไป: " .. targetIsland })
+                            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland)
+                        end)
+                        
+                        -- รอโหลดแมพและตัวละครกันโดนเตะ
+                        task.wait(2)
+                        
+                        -- กันเด้งทะลุแมพตอนสปอนด์
+                        if Character and Character:FindFirstChild("HumanoidRootPart") then
+                             Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
+                        end
+                        
+                        task.wait(1)
+                        _G.isIslandHopping = false
+                    end)
+                else
+                    _G.isIslandHopping = false
+                end
+            end
+            
+            -- ปล่อยผ่านไปให้ลูปรอบหน้ามาจัดการวาปเข้าหลังมอนระยะประชิด
+            return false -- Indicate that teleport is not finished (island hopping)
+            
         else
+            -- ถ้ากำลังข้ามเกาะอยู่ หรือมีสถานะวาร์ปข้ามโลก ห้ามขยับตัวเด็ดขาด (กัน Error 267)
             if _G.isIslandHopping then return false end
+            
+            -- ถ้าอยู่ใกล้ๆ (เกาะเดียวกัน)
             local distFromTarget = (root.Position - targetCFrame.Position).Magnitude
+            
+            -- แก้เป็นระบบ Tween ทั้งหมด เพราะเกมแก้ TP มา (Anti-Cheat ตรวจสอบการวาร์ป)
             if distFromTarget > 1 then
-                if not _G.isTweening then task.spawn(function() TweenFunction(targetCFrame) end) end
-                return false
+                if not _G.isTweening then
+                    task.spawn(function()
+                        TweenFunction(targetCFrame)
+                    end)
+                end
+                return false -- ยังบินไม่ถึง
             else
-                return true
+                -- ถ้าระยะใกล้มากแล้ว (หรือ Tween เสร็จแล้ว)
+                return true -- ถึงระยะพร้อมโจมตี
             end
         end
     end
     return false
 end
 
-local CombatRemote = ReplicatedStorage:WaitForChild("CombatSystem"):WaitForChild("Remotes"):WaitForChild("RequestHit")
+-- ── Attack ────────────────────────────────────────────────────
+-- The most reliable exploit attack method:
+-- 1. Expand hitbox via CFrame loop (stay on top → triggers server-side damage)
+-- 2. firetouchinterest on all mob parts
+-- 3. VirtualUser mouse click toward mob center on screen
+-- Remote ของเกมสำหรับโจมตี
+local CombatRemote = ReplicatedStorage
+    :WaitForChild("CombatSystem")
+    :WaitForChild("Remotes")
+    :WaitForChild("RequestHit")
+
 local function attackMob(mob)
     local root   = Character and Character:FindFirstChild("HumanoidRootPart")
     local mobHRP = mob:FindFirstChild("HumanoidRootPart")
     if not root or not mobHRP then return end
-    pcall(function() root.CFrame = CFrame.lookAt(root.Position, mobHRP.Position) end)
-    pcall(function() CombatRemote:FireServer() end)
+
+    -- หันหน้าเข้าหามอนก่อนตี
+    pcall(function()
+        root.CFrame = CFrame.lookAt(root.Position, mobHRP.Position)
+    end)
+
+    -- ยิง Remote ตีมอนตามระบบเกม (เล่น animation ปกติ)
+    pcall(function()
+        CombatRemote:FireServer()
+    end)
 end
 
+-- ── Auto Farm Toggle ย้ายมาบนสุด ───────────────────────────────
 FarmTab:CreateToggle({
     Name         = "🗡️ Auto Farm (เปิด/ปิด)",
     CurrentValue = false,
@@ -582,13 +753,31 @@ FarmTab:CreateToggle({
     Callback     = function(val)
         autoFarmEnabled = val
         if val then
+            -- เช็คสแกนมอนก่อนเริ่ม
             local anySelected = false
-            for k, v in pairs(selectedMobPrefixes) do if v then anySelected = true; break end end
-            if not anySelected then Rayfield:Notify({ Title = "⚠️ เลือก Mob ก่อน!", Content = "Scan Mob หรือติ๊กเลือกมอนที่ต้องการฟาร์มก่อนเริ่ม", Duration = 4 }); autoFarmEnabled = false; return end
-            if farmConnection then farmConnection:Disconnect(); farmConnection = nil end
+            for k, v in pairs(selectedMobPrefixes) do
+                if v == true then
+                    anySelected = true
+                    break
+                end
+            end
+            
+            if not anySelected then
+                Rayfield:Notify({ Title = "⚠️ เลือก Mob ก่อน!",
+                    Content = "Scan Mob หรือติ๊กเลือกมอนที่ต้องการฟาร์มก่อนเริ่ม", Duration = 4 })
+                autoFarmEnabled = false
+                return
+            end
+            
+            if farmConnection then
+                farmConnection:Disconnect()
+                farmConnection = nil
+            end
 
+                -- เริ่มทำงาน Heartbeat Auto Farm
             farmConnection = RunService.Heartbeat:Connect(function(dt)
                 if not autoFarmEnabled then return end
+                -- ถ้าระบบกำลังบิน (Tween) หรือวาร์ปเกาะอยู่ ข้ามลูปไปก่อน
                 if _G.isTweening or _G.isIslandHopping then return end
                 
                 local success, err = pcall(function()
@@ -596,9 +785,17 @@ FarmTab:CreateToggle({
                     local root = Character and Character:FindFirstChild("HumanoidRootPart")
                     if not root then return end
                     
+                    -- สร้างตัวยึดให้ลอยนิ่งๆ กลางอากาศ กันโดนสกิลมอนกระเด็นหรือศพมอนดีด
                     local bv = root:FindFirstChild("FarmFloat")
-                    if not bv then bv = Instance.new("BodyVelocity"); bv.Name = "FarmFloat"; bv.MaxForce = Vector3.new(100000, 100000, 100000); bv.Velocity = Vector3.new(0, 0, 0); bv.Parent = root end
+                    if not bv then
+                        bv = Instance.new("BodyVelocity")
+                        bv.Name = "FarmFloat"
+                        bv.MaxForce = Vector3.new(100000, 100000, 100000)
+                        bv.Velocity = Vector3.new(0, 0, 0)
+                        bv.Parent = root
+                    end
 
+                    -- Find + Farm
                     local mob = findNearestSelectedMob()
                     if mob then
                         local hum    = mob:FindFirstChildOfClass("Humanoid")
@@ -608,98 +805,270 @@ FarmTab:CreateToggle({
                         local cleanName = mob.Name:gsub("%s+", "")
                         local matchedPrefix = ""
                         for prefix, _ in pairs(selectedMobPrefixes) do
-                            if string.find(cleanName, prefix, 1, true) then matchedPrefix = prefix; break end
+                            if string.find(cleanName, prefix, 1, true) then
+                                matchedPrefix = prefix
+                                break
+                            end
                         end
                         local qi = QUEST_MAP[matchedPrefix]
 
+                        -- โชว์เลือดมอนและระยะโจมตีใน UI
                         pcall(function()
                             if tick() - (_G.lastFarmStatusUpdate or 0) > 0.3 then
                                 _G.lastFarmStatusUpdate = tick()
-                                FarmStatus:Set({ Title = "⚔️ กำลัง Farm", Content = mob.Name .. "  HP: " .. hp .. "/" .. maxHP .. "\nระยะ: " .. attackRange .. " studs" .. (qi and ("\nQuest: " .. qi.label) or "") })
+                                FarmStatus:Set({
+                                    Title   = "⚔️ กำลัง Farm",
+                                    Content = mob.Name .. "  HP: " .. hp .. "/" .. maxHP
+                                           .. "\nระยะ: " .. attackRange .. " studs"
+                                           .. (qi and ("\nQuest (Manual): " .. qi.label) or "")
+                                })
                             end
                         end)
 
-                        if teleportBehindMob(mob) then attackMob(mob) end
+                        local readyToAttack = teleportBehindMob(mob)
+                        if readyToAttack then
+                            attackMob(mob)
+                        end
 
+                        -- ── Auto Skill Logic ──
                         skillCooldownTimer = skillCooldownTimer + dt
-                        if skillCooldownTimer > 1.5 then 
+                        if skillCooldownTimer > 1.5 then -- ดีเลย์ปล่อยสกิล 1.5 วิ ป้องกันบัคแอนิเมชั่นค้าง
                             local keyToPress = skillOrder[currentSkillIdx]
                             if autoSkills[keyToPress] then
+                                -- ส่งคำสั่งกดปุ่ม ค้างไว้ติ๊ดนึงแล้วปล่อย
                                 VirtualInputMngr:SendKeyEvent(true, skillKeycodes[keyToPress], false, game)
                                 task.wait(0.05)
                                 VirtualInputMngr:SendKeyEvent(false, skillKeycodes[keyToPress], false, game)
-                                skillCooldownTimer = 0 
+                                skillCooldownTimer = 0 -- Reset timer หลังกดสกิลสำเร็จ
                             end
+                            -- วนลูปลำดับสกิล Z -> X -> C -> V -> F -> Z
                             currentSkillIdx = currentSkillIdx + 1
                             if currentSkillIdx > #skillOrder then currentSkillIdx = 1 end
                         end
+
                     else
-                        if not _G.isIslandHopping then
-                            pcall(function()
-                                if tick() - (_G.lastFarmStatusUpdate or 0) > 0.3 then
-                                    _G.lastFarmStatusUpdate = tick()
-                                    FarmStatus:Set({ Title = "🔍 หามอน...", Content = "ค้นหาแบบเจาะจงโฟลเดอร์ NPCs ไม่พบมอน — กำลังเช็คเกาะ..." })
+                        -- ปรับปลดล็อกสถานะวาปกันค้างถ้าหามอนไม่เจอ
+                        _G.teleportingLock = false
+                        pcall(function()
+                            if tick() - (_G.lastFarmStatusUpdate or 0) > 0.3 then
+                                _G.lastFarmStatusUpdate = tick()
+                                
+                                -- Debug details
+                                local debugTxt = ""
+                                if #mobCache == 0 then
+                                    debugTxt = "\n(Debug: Filter กรองชื่อทิ้งหมด Cache=0)"
+                                else
+                                    local firstInCache = mobCache[1]
+                                    local a = getMobAnchor(firstInCache)
+                                    local h = firstInCache:FindFirstChildOfClass("Humanoid")
+                                    debugTxt = "\n(Debug: Cacheมี " .. #mobCache .. " ตัว แต่พลาดที่ -> Anchor:"..tostring(a~=nil) .. " HP:" .. tostring(h and h.Health or -1) .. ")"
                                 end
-                            end)
-                            
-                            local targetIsland = nil
-                            for prefix, isEn in pairs(selectedMobPrefixes) do
-                                if isEn and QUEST_MAP[prefix] and QUEST_MAP[prefix].island then
-                                    if not _G.loadedSelectedPrefixes or not _G.loadedSelectedPrefixes[prefix] then
-                                        targetIsland = QUEST_MAP[prefix].island
-                                        break 
+
+                                FarmStatus:Set({
+                                    Title   = "🔍 หามอน...",
+                                    Content = "ไม่พบมอนในบริเวณ — ลองสแกนหามอนใหม่ หรือเดินหา" .. debugTxt
+                                })
+                                
+                                -- ถ้ายูนิตไม่มีรอบตัว (Unloaded เพราะอยู่ไกล) ให้ใช้ Portal บินข้ามเกาะ
+                                if not _G.isIslandHopping then
+                                    local targetIsland = nil
+                                    for prefix, isEn in pairs(selectedMobPrefixes) do
+                                        if isEn and QUEST_MAP[prefix] and QUEST_MAP[prefix].island then
+                                            -- ถ้าเกาะนี้ไม่มีมอนโผล่ในแมพเลย (ไม่มีแม้แต่ซากศพ) แปลว่าเกาะยังไม่ได้โหลด
+                                            if not _G.loadedSelectedPrefixes or not _G.loadedSelectedPrefixes[prefix] then
+                                                targetIsland = QUEST_MAP[prefix].island
+                                                break -- เอาเกาะแรกที่เจอที่ยังไม่โหลด
+                                            end
+                                        end
+                                    end
+                                    
+                                    if targetIsland then
+                                        _G.isIslandHopping = true
+                                        task.spawn(function()
+                                            if tick() - (_G.lastPortalHop or 0) > 15 then
+                                                _G.lastPortalHop = tick()
+                                                pcall(function()
+                                                    FarmStatus:Set({ Title = "✈️ กำลังบินข้ามเกาะ...", Content = "วาร์ปไปโหลดมอนที่เกาะ: " .. targetIsland })
+                                                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("TeleportToPortal"):FireServer(targetIsland)
+                                                end)
+                                                -- รอให้มอน Stream In (โหลดเข้าแมพ)
+                                                task.wait(3)
+                                                -- โยกตำแหน่งจากจุดวาปขึ้นปล่องเพื่อไม่ให้ติด
+                                                if Character and Character:FindFirstChild("HumanoidRootPart") then
+                                                     Character.HumanoidRootPart.CFrame = Character.HumanoidRootPart.CFrame * CFrame.new(0, 50, 0)
+                                                end
+                                            end
+                                            task.wait(1)
+                                            _G.isIslandHopping = false
+                                        end)
                                     end
                                 end
                             end
-                            if targetIsland then HopToIsland(targetIsland) end
-                        end
+                        end)
                     end
                 end)
+                
+                -- โชว์ Error ให้เห็นใน UI จะได้แก้ถูก
+                if not success then
+                    pcall(function()
+                        if tick() - (_G.lastFarmStatusUpdate or 0) > 0.3 then
+                            _G.lastFarmStatusUpdate = tick()
+                            FarmStatus:Set({ Title = "❌ Error!", Content = tostring(err) })
+                        end
+                    end)
+                end
             end)
         else
+            _G.teleportingLock = false
             _G.isTweening = false
             if _G.currentTween then pcall(function() _G.currentTween:Cancel() end) end
             if farmConnection then farmConnection:Disconnect(); farmConnection = nil end
-            pcall(function() if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then local bv = LocalPlayer.Character.HumanoidRootPart:FindFirstChild("FarmFloat"); if bv then bv:Destroy() end end end)
-            pcall(function() FarmStatus:Set({ Title = "สถานะ", Content = "ปิดอยู่ — พักเบรก" }) end)
+            
+            -- ถอดตัวล็อกลอยกลางอากาศออกเมื่อปิดฟาร์ม
+            pcall(function()
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local bv = LocalPlayer.Character.HumanoidRootPart:FindFirstChild("FarmFloat")
+                    if bv then bv:Destroy() end
+                end
+            end)
+            
+            pcall(function()
+                FarmStatus:Set({ Title = "สถานะ", Content = "ปิดอยู่ — พักเบรก" })
+            end)
         end
     end,
 })
 
-FarmTab:CreateSlider({ Name = "ความเร็วบิน (Tween Speed)", Range = {50, 1500}, Increment = 10, Suffix = " studs/sec", CurrentValue = 300, Flag = "TweenSpeedSlider", Callback = function(val) tweenSpeed = val end })
-FarmTab:CreateDropdown({ Name = "ตำแหน่ง Teleport", Options = {"ด้านหลัง (Behind)", "ด้านบน (Above)", "ด้านล่าง (Below)"}, CurrentOption = {"ด้านหลัง (Behind)"}, MultipleOptions = false, Flag = "TeleportPositionToggle", Callback = function(Option) teleportPosition = Option[1] end })
-FarmTab:CreateSlider({ Name = "ระยะโจมตี (studs)", Range = {1, 60}, Increment = 1, Suffix = " studs", CurrentValue = 10, Flag = "AttackRange", Callback = function(val) attackRange = val end })
+FarmTab:CreateSection("ตั้งค่าการโจมตี")
+
+FarmTab:CreateSlider({
+    Name         = "ความเร็วบินเข้าหามอน (Tween Speed)",
+    Range        = {50, 1500},
+    Increment    = 10,
+    Suffix       = " studs/sec",
+    CurrentValue = 300,
+    Flag         = "TweenSpeedSlider",
+    Callback     = function(val) tweenSpeed = val end,
+})
+
+FarmTab:CreateDropdown({
+    Name = "ตำแหน่ง Teleport",
+    Options = {"ด้านหลัง (Behind)", "ด้านบน (Above)", "ด้านล่าง (Below)"},
+    CurrentOption = {"ด้านหลัง (Behind)"},
+    MultipleOptions = false,
+    Flag = "TeleportPositionToggle",
+    Callback = function(Option)
+        teleportPosition = Option[1]
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name         = "ระยะโจมตี (studs)",
+    Range        = {1, 60},
+    Increment    = 1,
+    Suffix       = " studs",
+    CurrentValue = 10,
+    Flag         = "AttackRange",
+    Callback     = function(val) attackRange = val end,
+})
+
+-- (Moved functions to the top of the file before the toggle)
+
+FarmTab:CreateButton({
+    Name     = "📍 Teleport หลังมอน (Test)",
+    Callback = function()
+        Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local mob = findNearestSelectedMob()
+        if mob then
+            teleportBehindMob(mob)
+            Rayfield:Notify({ Title = "Teleport", Content = "→ ไปหา " .. mob.Name, Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "ไม่พบมอน", Content = "ติ๊กมอนในรายการก่อน", Duration = 3 })
+        end
+    end,
+})
+
+FarmTab:CreateButton({
+    Name     = "📍 Teleport หลังมอน (Test)",
+    Callback = function()
+        Character = LocalPlayer.Character or Character
+        local mob = findNearestSelectedMob()
+        if mob then
+            teleportBehindMob(mob)
+            Rayfield:Notify({ Title = "Teleport", Content = "→ หลัง " .. mob.Name, Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "ไม่พบมอน", Content = "ติ๊กมอนในรายการก่อน", Duration = 3 })
+        end
+    end,
+})
 
 -- ============================================================
 -- TAB 4 — Teleport
 -- ============================================================
 local TeleportTab = Window:CreateTab("🚀 Teleport", 4483362458)
 TeleportTab:CreateSection("วาร์ปไปยังเกาะต่างๆ")
+
 local selectedIsland = "Starter"
 
 TeleportTab:CreateDropdown({
     Name = "เลือกเกาะ",
-    Options = {"Starter", "Jungle", "Desert", "Snow", "Shibuya Station", "Hueco Mundo", "Shinjuku", "Slime", "Academy", "Soul Society"},
+    Options = {"Starter", "Jungle", "Desert", "Snow", "Sailor", "Shibuya", "HuecoMundo", "Boss", "Dungeon", "Shinjuku", "Slime", "Academy", "Judgement"},
     CurrentOption = {"Starter"},
     MultipleOptions = false,
     Flag = "TeleportDropdown",
-    Callback = function(Option) selectedIsland = Option[1] end,
+    Callback = function(Option)
+        selectedIsland = Option[1]
+    end,
 })
 
-TeleportTab:CreateButton({ Name = "✨ Teleport บินไปหาแท่นวาร์ป (ระบบใหม่)", Callback = function() HopToIsland(selectedIsland) end })
+TeleportTab:CreateButton({
+    Name = "✨ Teleport ไปยังเกาะที่เลือก",
+    Callback = function()
+        local args = { selectedIsland }
+        local ok, err = pcall(function()
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("Remotes")
+                :WaitForChild("TeleportToPortal")
+                :FireServer(unpack(args))
+        end)
+        if ok then
+            Rayfield:Notify({ Title = "Teleport", Content = "วาร์ปไป " .. selectedIsland .. " สำเร็จ", Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "❌ Error", Content = "วาร์ปไม่สำเร็จ: " .. tostring(err), Duration = 3 })
+        end
+    end,
+})
 
+-- ============================================================
+-- Custom Teleport
+-- ============================================================
 local clickTpEnabled = false
 local Mouse = LocalPlayer:GetMouse()
+
 TeleportTab:CreateSection("Custom Teleport")
-TeleportTab:CreateToggle({ Name = "🖱️ วาร์ปไปจุดที่เมาส์ชี้ (กด Ctrl ซ้าย + Click ซ้าย)", CurrentValue = false, Flag = "ClickTPToggle", Callback = function(val) clickTpEnabled = val end })
+
+TeleportTab:CreateToggle({
+    Name = "🖱️ วาร์ปไปจุดที่เมาส์ชี้ (กด Ctrl ซ้าย + Click ซ้าย)",
+    CurrentValue = false,
+    Flag = "ClickTPToggle",
+    Callback = function(val)
+        clickTpEnabled = val
+    end,
+})
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and clickTpEnabled and input.UserInputType == Enum.UserInputType.MouseButton1 then
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
-            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                local targetPos = Mouse.Hit.Position + Vector3.new(0, 5, 0)
-                task.spawn(function() TweenFunction(CFrame.new(targetPos), 800) end)
+    if not gameProcessed and clickTpEnabled then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+                local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    -- วาร์ปขึ้นจากพื้นเล็กน้อยเพื่อป้องกันตัวละครไปติดในโมเดลพื้นดิน
+                    -- แก้เป็น Tween (ความเร็วสูง) เพื่อเลี่ยง Anti-Cheat
+                    local targetPos = Mouse.Hit.Position + Vector3.new(0, 5, 0)
+                    task.spawn(function()
+                        TweenFunction(CFrame.new(targetPos), 800) -- ใช้ความเร็ว 800 สำหรับ Click TP
+                    end)
+                end
             end
         end
     end
@@ -709,8 +1078,495 @@ end)
 -- TAB 5 — Auto Dungeon
 -- ============================================================
 local DungeonTab = Window:CreateTab("🏰 Auto Dungeon", 4483362458)
-DungeonTab:CreateSection("ระบบ Dungeon ปิดไว้ชั่วคราวในสคริปต์แบบย่อเพื่อความเสถียร หากต้องการใช้งานแจ้งได้ครับ")
+DungeonTab:CreateSection("ตั้งค่า Dungeon")
 
+-- ── State ─────────────────────────────────────────────────────
+local selectedDungeon   = "CidDungeon"    -- Remote argument
+local selectedDifficulty = "Easy"          -- ระดับความยาก
+local autoDungeonEnabled = false
+local dungeonPhase       = "idle"          -- idle | warp_island | warp_npc | spawn | waiting | voting | farming | retry
+local lastDungeonAction  = 0
+
+-- ── Dungeon options ────────────────────────────────────────────
+local DUNGEON_OPTIONS = {
+    { label = "Cid Dungeon",    arg = "CidDungeon" },
+    { label = "Rune Dungeon",   arg = "RuneDungeon" },
+    { label = "Double Dungeon", arg = "DoubleDungeon" },
+}
+local dungeonDropOptions = {}
+local dungeonArgMap = {}
+for _, d in ipairs(DUNGEON_OPTIONS) do
+    table.insert(dungeonDropOptions, d.label)
+    dungeonArgMap[d.label] = d.arg
+end
+
+local DIFFICULTY_OPTIONS = {"Easy", "Medium", "Hard", "Extreme"}
+
+-- ── UI: เลือก Dungeon ─────────────────────────────────────────
+DungeonTab:CreateDropdown({
+    Name = "🏰 เลือก Dungeon",
+    Options = dungeonDropOptions,
+    CurrentOption = { dungeonDropOptions[1] },
+    MultipleOptions = false,
+    Flag = "DungeonSelectDropdown",
+    Callback = function(opt)
+        local lbl = opt[1]
+        selectedDungeon = dungeonArgMap[lbl] or "CidDungeon"
+    end,
+})
+
+-- ── UI: เลือกความยาก ──────────────────────────────────────────
+DungeonTab:CreateDropdown({
+    Name = "⚔️ ระดับความยาก (Difficulty)",
+    Options = DIFFICULTY_OPTIONS,
+    CurrentOption = {"Easy"},
+    MultipleOptions = false,
+    Flag = "DungeonDiffDropdown",
+    Callback = function(opt)
+        selectedDifficulty = opt[1] or "Easy"
+    end,
+})
+
+-- ── Status Paragraph ──────────────────────────────────────────
+local DungeonStatus = DungeonTab:CreateParagraph({
+    Title   = "สถานะ Dungeon",
+    Content = "ปิดอยู่ — เปิดสวิตช์ด้านล่างเพื่อเริ่ม"
+})
+
+-- ── Helpers ───────────────────────────────────────────────────
+local function dungeonSetStatus(title, content)
+    pcall(function() DungeonStatus:Set({ Title = title, Content = content }) end)
+end
+
+-- ย้ายไปดันตามชื่อเกาะ
+local function dungeonTeleportIsland(islandName)
+    pcall(function()
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("TeleportToPortal")
+            :FireServer(islandName)
+    end)
+end
+
+-- วาปตัวละครหา NPC DungeonPortalsNPC
+local function warpToDungeonNPC()
+    local npc = nil
+    -- หา NPC หลายที่ใน Workspace
+    for _, obj in ipairs(Workspace_:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == "DungeonPortalsNPC" then
+            npc = obj
+            break
+        end
+    end
+    if npc then
+        local npcRoot = npc:FindFirstChild("HumanoidRootPart")
+            or npc:FindFirstChild("Torso")
+            or npc.PrimaryPart
+        if npcRoot then
+            local myChar = LocalPlayer.Character
+            local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if myRoot then
+                -- แก้เป็น Tween เพื่อกัน Anti-Cheat
+                task.spawn(function()
+                    TweenFunction(npcRoot.CFrame * CFrame.new(0, 0, 3), 500)
+                end)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ยิง Remote เข้าดัน
+local function fireRequestDungeonPortal(dungeonArg)
+    local ok = pcall(function()
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("RequestDungeonPortal")
+            :FireServer(dungeonArg)
+    end)
+    return ok
+end
+
+-- โหวตความยาก
+local function fireDungeonWaveVote(diff)
+    local ok = pcall(function()
+        game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("DungeonWaveVote")
+            :FireServer(diff)
+    end)
+    return ok
+end
+
+-- ตรวจว่าอยู่ใน Dungeon (เช็คชื่อ Workspace หรือ PlaceId ย่อย)
+local function isInsideDungeon()
+    -- เช็ค Attribute หรือ tag ใน Workspace ที่เกมบางเกมตั้งไว้
+    local ws = game:GetService("Workspace")
+    if ws:GetAttribute("InDungeon") then return true end
+    -- เช็คชื่อ Lighting หรือ Skybox ที่เฉพาะดัน
+    local lighting = game:GetService("Lighting")
+    if lighting and lighting:FindFirstChild("DungeonAmbience") then return true end
+    -- fallback: เช็คว่า Map ใน Workspace มีชื่อ Dungeon อยู่
+    for _, child in ipairs(Workspace_:GetChildren()) do
+        if child.Name:lower():find("dungeon") then return true end
+    end
+    return false
+end
+
+-- ค้นหามอนในดัน — ค้นใน workspace.NPCs โดยตรง (ไว) + fallback ทั้ง workspace
+local function findDungeonMob()
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    -- ค้นใน workspace.NPCs ก่อน (มอนดันอยู่ที่นี่) ถ้าไม่มีค่อย fallback ทั้ง workspace
+    local searchList = {}
+    local npcFolder = Workspace_:FindFirstChild("NPCs")
+    if npcFolder then
+        for _, obj in ipairs(npcFolder:GetChildren()) do
+            table.insert(searchList, obj)
+        end
+    end
+    -- ถ้าหา NPCs ไม่เจอ หรือหาแล้วไม่เจอมอน ให้ค้น workspace ทั้งหมดเป็น fallback
+    if #searchList == 0 then
+        for _, obj in ipairs(Workspace_:GetChildren()) do
+            table.insert(searchList, obj)
+        end
+    end
+
+    local nearest, bestDist = nil, math.huge
+    for _, obj in ipairs(searchList) do
+        if obj:IsA("Model") and obj ~= myChar then
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            -- ไม่กรองชื่อ NPC ออก เพราะมอนดันชื่อ DungeonNPC1, DungeonNPC2 ฯลฯ
+            if hum and hum.Health > 0 and hum.MaxHealth > 10 then
+                local anchor = obj:FindFirstChild("HumanoidRootPart")
+                    or obj:FindFirstChild("Torso")
+                    or obj.PrimaryPart
+                if anchor then
+                    local d = (anchor.Position - myRoot.Position).Magnitude
+                    if d < bestDist then
+                        nearest  = obj
+                        bestDist = d
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- Tween เข้าหามอนดัน
+local dungeonTweening = false
+local function tweenToDungeonMob(mob)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local anchor = mob:FindFirstChild("HumanoidRootPart")
+        or mob:FindFirstChild("Torso")
+        or mob.PrimaryPart
+    if not myRoot or not anchor then return false end
+
+    local dist = (anchor.Position - myRoot.Position).Magnitude
+    if dist <= 8 then
+        return true -- อยู่ในระยะแล้ว
+    end
+
+    if not dungeonTweening then
+        dungeonTweening = true
+        task.spawn(function()
+            local targetCF = CFrame.lookAt(anchor.Position + Vector3.new(0, 0, 3), anchor.Position)
+            local t = dist / tweenSpeed
+            local tw = TweenService:Create(myRoot, TweenInfo.new(t, Enum.EasingStyle.Linear), {CFrame = targetCF})
+            tw:Play()
+            tw.Completed:Wait()
+            dungeonTweening = false
+        end)
+    end
+    return false
+end
+
+-- ชน/โจมตีมอนดัน
+local function attackDungeonMob(mob)
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local mobHRP = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Torso")
+    if not myRoot or not mobHRP then return end
+    pcall(function() myRoot.CFrame = CFrame.lookAt(myRoot.Position, mobHRP.Position) end)
+    pcall(function() CombatRemote:FireServer() end)
+end
+
+-- ── Main Auto Dungeon Loop ─────────────────────────────────────
+local function startAutoDungeonLoop()
+    task.spawn(function()
+        -- ─ Step 1: วาปไปเกาะ Dungeon ─
+        dungeonPhase = "warp_island"
+        dungeonSetStatus("🚀 Step 1", "วาปไปเกาะ Dungeon...")
+        dungeonTeleportIsland("Dungeon")
+        task.wait(4)  -- รอโหลดแมพ
+
+        if not autoDungeonEnabled then return end
+
+        -- ─ Step 2: วาปหา NPC ─
+        dungeonPhase = "warp_npc"
+        dungeonSetStatus("🧭 Step 2", "วาปไปหา DungeonPortalsNPC...")
+        local found = false
+        for i = 1, 10 do
+            if warpToDungeonNPC() then found = true; break end
+            task.wait(1)
+        end
+        if not found then
+            dungeonSetStatus("❌ Error", "หา DungeonPortalsNPC ไม่เจอ — รีสตาร์ท Auto Dungeon")
+            autoDungeonEnabled = false
+            return
+        end
+        task.wait(1)
+
+        if not autoDungeonEnabled then return end
+
+        -- ─ Step 3: ขอเข้า Dungeon ─
+        dungeonPhase = "spawn"
+        dungeonSetStatus("🏰 Step 3", "เปิดพอร์ทัล: " .. selectedDungeon)
+        fireRequestDungeonPortal(selectedDungeon)
+        task.wait(2)
+
+        if not autoDungeonEnabled then return end
+
+        -- ─ Step 4: รอเข้าดัน (นับถอยหลัง 30 วิ) ─
+        dungeonPhase = "waiting"
+        local waitMax = 45
+        for i = 1, waitMax do
+            if not autoDungeonEnabled then return end
+            dungeonSetStatus("⏳ Step 4 — รอเข้าดัน", "กำลังรอ countdown... (" .. (waitMax - i) .. "s)")
+            task.wait(1)
+            -- ถ้าตัวละครเด้งเข้าดันแล้วออกจากลูปได้เลย
+            if isInsideDungeon() then break end
+        end
+
+        -- จบ — เข้าดันแล้ว ปิด toggle อัตโนมัติ
+        dungeonPhase = "idle"
+        autoDungeonEnabled = false
+        dungeonSetStatus("✅ เข้าดันแล้ว!", "อยู่ใน " .. selectedDungeon .. " แล้ว\nเปิด ⚔️ Auto Kill Mob เพื่อฟาร์มได้เลย")
+    end)
+end
+
+
+-- ── Toggle Full Auto Run ──────────────────────────────────────
+DungeonTab:CreateToggle({
+    Name         = "🏰 Auto Enter Dungeon (วาปเกาะ → NPC → Spawn → รอเข้าดัน)",
+    CurrentValue = false,
+    Flag         = "AutoDungeonToggle",
+    Callback     = function(val)
+        autoDungeonEnabled = val
+        if val then
+            dungeonSetStatus("🚀 กำลังเริ่ม...", "เริ่ม Auto Dungeon — " .. selectedDungeon .. " | " .. selectedDifficulty)
+            startAutoDungeonLoop()
+        else
+            dungeonPhase = "idle"
+            dungeonTweening = false
+            dungeonSetStatus("⏹ หยุดแล้ว", "ปิด Auto Dungeon")
+        end
+    end,
+})
+
+-- ============================================================
+-- ── Auto Kill Mob (In Dungeon Only) — แยกต่างหาก ─────────────
+-- ============================================================
+DungeonTab:CreateSection("⚔️ Auto Kill Mob (สำหรับเข้าดันมาเองแล้ว)")
+
+local autoKillInDungeon  = false
+local killDungeonTweening = false
+
+local KillStatus = DungeonTab:CreateParagraph({
+    Title   = "สถานะ Auto Kill",
+    Content = "ปิดอยู่ — เปิดเมื่ออยู่ในดันแล้ว"
+})
+
+local function killSetStatus(title, content)
+    pcall(function() KillStatus:Set({ Title = title, Content = content }) end)
+end
+
+-- โหวตความยากก่อนฟาร์ม (optional)
+local autoVoteOnKill = false
+DungeonTab:CreateToggle({
+    Name         = "🗳️ Auto Vote Difficulty เมื่อเปิด Kill",
+    CurrentValue = false,
+    Flag         = "AutoVoteOnKillToggle",
+    Callback     = function(val) autoVoteOnKill = val end,
+})
+
+DungeonTab:CreateToggle({
+    Name         = "⚔️ Auto Kill Mob in Dungeon (เปิด/ปิด)",
+    CurrentValue = false,
+    Flag         = "AutoKillDungeonToggle",
+    Callback     = function(val)
+        autoKillInDungeon = val
+        killDungeonTweening = false
+
+        if not val then
+            killSetStatus("⏹ หยุดแล้ว", "ปิด Auto Kill — กดเปิดใหม่เมื่อพร้อม")
+            return
+        end
+
+        killSetStatus("🚀 เริ่ม Auto Kill", "เตรียมอาวุธ + Haki...")
+
+        task.spawn(function()
+            -- ── [1] โหวตความยากถ้าเปิด option ไว้ ─────────────────
+            if autoVoteOnKill then
+                killSetStatus("🗳️ โหวต Difficulty", selectedDifficulty)
+                for i = 1, 3 do
+                    fireDungeonWaveVote(selectedDifficulty)
+                    task.wait(0.5)
+                end
+                task.wait(1)
+            end
+
+            -- ── [2] ถืออาวุธเลข 2 (กดปุ่ม "2") ─────────────────────
+            pcall(function()
+                VirtualInputMngr:SendKeyEvent(true,  Enum.KeyCode.Two, false, game)
+                task.wait(0.05)
+                VirtualInputMngr:SendKeyEvent(false, Enum.KeyCode.Two, false, game)
+            end)
+            task.wait(0.3)
+
+            -- ── [3] กด Haki (G) 1 ครั้งก่อนเริ่ม ────────────────────
+            pcall(function()
+                VirtualInputMngr:SendKeyEvent(true,  Enum.KeyCode.G, false, game)
+                task.wait(0.05)
+                VirtualInputMngr:SendKeyEvent(false, Enum.KeyCode.G, false, game)
+            end)
+            task.wait(0.5)
+
+            killSetStatus("⚔️ กำลังฟาร์ม", "วาปหามอน...")
+
+            -- ── [4] Farm Loop ─────────────────────────────────────────
+            while autoKillInDungeon do
+                local myChar = LocalPlayer.Character
+                local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+                if myRoot then
+                    local mob = findDungeonMob()
+                    if mob then
+                        local hum   = mob:FindFirstChildOfClass("Humanoid")
+                        local hp    = math.floor(hum and hum.Health  or 0)
+                        local maxhp = math.floor(hum and hum.MaxHealth or 0)
+
+                        -- หา anchor มอน
+                        local anchor = mob:FindFirstChild("HumanoidRootPart")
+                            or mob:FindFirstChild("Torso")
+                            or mob.PrimaryPart
+
+                        if anchor then
+                            -- ── วาปขึ้นบนหัวมอน (ให้เตี้ยลงเพื่อตีโดน) และใช้ระยะโจมตี (attackRange) ช่วยถอย ──
+                            -- ลดความสูงเหลือ 5 studs (ดาบตีถึง) และถอยหลังตามสไลเดอร์ระยะโจมตี
+                            local offsetDist = math.max(1, (attackRange or 10) / 2)
+                            local offsetDir = anchor.CFrame.LookVector * -offsetDist
+                            local floatHeight = 4.5 -- ความสูงระดับตีโดนหัวมอนพอดี
+                            local abovePos = anchor.Position + Vector3.new(offsetDir.X, floatHeight, offsetDir.Z)
+                            
+                            -- lookAt target ให้มองไปที่จุดกลางหัวมอน (ระดับสายตาเดียวกัน จะได้ไม่ก้ม)
+                            local lookTarget = Vector3.new(anchor.Position.X, abovePos.Y, anchor.Position.Z)
+                            local targetCF = CFrame.lookAt(abovePos, lookTarget)
+                            
+                            -- ใช้ Tween แทนการวาร์ป CFrame สด กันโดนเตะ
+                            if not _G.isTweening then
+                                task.spawn(function()
+                                    TweenFunction(targetCF, tweenSpeed)
+                                end)
+                            end
+
+                            killSetStatus(
+                                "⚔️ ตี: " .. mob.Name,
+                                "HP: " .. hp .. "/" .. maxhp .. "  |  อยู่เหนือหัว 8 studs"
+                            )
+
+                            -- ── โจมตี (CombatRemote) ──────────────────
+                            pcall(function() CombatRemote:FireServer() end)
+
+                            -- ── คลิกซ้าย (mouse click) ───────────────
+                            pcall(function()
+                                VirtualUser:Button1Down(Vector2.new(
+                                    Camera.ViewportSize.X / 2,
+                                    Camera.ViewportSize.Y / 2
+                                ), Camera.CFrame)
+                                task.wait(0.05)
+                                VirtualUser:Button1Up(Vector2.new(
+                                    Camera.ViewportSize.X / 2,
+                                    Camera.ViewportSize.Y / 2
+                                ), Camera.CFrame)
+                            end)
+
+                            -- ── สกิล Z,X,C,V,F ทุกตัวที่เปิดไว้ ────────
+                            for _, key in ipairs(skillOrder) do
+                                if autoSkills[key] then
+                                    pcall(function()
+                                        VirtualInputMngr:SendKeyEvent(true,  skillKeycodes[key], false, game)
+                                        task.wait(0.05)
+                                        VirtualInputMngr:SendKeyEvent(false, skillKeycodes[key], false, game)
+                                    end)
+                                end
+                            end
+                        end
+                    else
+                        killSetStatus("🔍 รอ Wave", "ไม่พบมอน — รอ Wave ถัดไป...")
+                    end
+                end
+
+                task.wait(0.08) -- ~12 ครั้ง/วิ
+            end
+        end)
+    end,
+})
+
+-- ── Manual controls ───────────────────────────────────────────
+DungeonTab:CreateSection("ปุ่มจัดการ Manual")
+
+DungeonTab:CreateButton({
+    Name = "🚀 วาปไปเกาะ Dungeon",
+    Callback = function()
+        dungeonTeleportIsland("Dungeon")
+        Rayfield:Notify({ Title = "Teleport", Content = "วาปไปเกาะ Dungeon แล้ว", Duration = 2 })
+    end,
+})
+
+DungeonTab:CreateButton({
+    Name = "🧭 วาปหา DungeonPortalsNPC",
+    Callback = function()
+        if warpToDungeonNPC() then
+            Rayfield:Notify({ Title = "✅ NPC", Content = "อยู่ข้าง DungeonPortalsNPC แล้ว", Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "❌ NPC", Content = "หา DungeonPortalsNPC ไม่เจอในแมพ", Duration = 3 })
+        end
+    end,
+})
+
+DungeonTab:CreateButton({
+    Name = "🏰 Spawn Dungeon ที่เลือก",
+    Callback = function()
+        local ok = fireRequestDungeonPortal(selectedDungeon)
+        Rayfield:Notify({
+            Title = ok and "✅ Spawn" or "❌ Error",
+            Content = ok and ("เปิดพอร์ทัล: " .. selectedDungeon) or "ยิง Remote ล้มเหลว",
+            Duration = 3
+        })
+    end,
+})
+
+DungeonTab:CreateButton({
+    Name = "🗳️ โหวต Difficulty ที่เลือก",
+    Callback = function()
+        local ok = fireDungeonWaveVote(selectedDifficulty)
+        Rayfield:Notify({
+            Title = ok and "✅ Vote" or "❌ Error",
+            Content = ok and ("โหวต: " .. selectedDifficulty) or "ยิง Remote ล้มเหลว",
+            Duration = 3
+        })
+    end,
+})
+
+-- ============================================================
+-- Init
+-- ============================================================
 task.wait(1)
-Rayfield:Notify({ Title = "✅ โหลดสำเร็จ!", Content = "เพิ่มระบบปิดหน้าต่าง UI อัตโนมัติหลังวาร์ปเรียบร้อยแล้ว!", Duration = 5 })
+Rayfield:Notify({ Title = "✅ โหลดสำเร็จ!", Content = "เลือกมอนที่ต้องการฟาร์ม แล้วกดเปิด Auto Farm ได้เลย!", Duration = 5 })
 print("[SailorPieceTools] Ready")
