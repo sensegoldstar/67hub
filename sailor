@@ -129,13 +129,17 @@ WeaponTab:CreateToggle({
 -- LocalPlayer.CharacterAdded มีอยู่แล้วตอนต้นไฟล์ จะดึง Character ใหม่เวลากลับมาเกิดอัตโนมัติ 
 -- ทำให้ลูป Auto Haki และ Auto Equip รู้จักตัวละครใหม่เอง
 
--- Input พิมพ์ชื่ออาวุธที่ต้องการ
-WeaponTab:CreateInput({
-    Name                  = "ชื่ออาวุธที่ต้องการจะถือ",
-    PlaceholderText       = "เช่น Katana หรือ Combat",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(val)
-        typedWeaponName = val
+-- ตัวแปรเก็บ Dropdown สำหรับอัปเดตตัวเลือก
+local WeaponDropdown
+
+WeaponDropdown = WeaponTab:CreateDropdown({
+    Name = "ชื่ออาวุธที่ต้องการจะถือ",
+    Options = {"ยังไม่ได้สแกนอาวุธ..."},
+    CurrentOption = {""},
+    MultipleOptions = false,
+    Flag = "WeaponSelectDropdown",
+    Callback = function(Option)
+        typedWeaponName = Option[1]
     end,
 })
 
@@ -144,59 +148,33 @@ WeaponTab:CreateButton({
     Callback = function()
         toolCache = getAllTools()
         if #toolCache == 0 then
-            WeaponListParagraph:Set({ Title = "รายการอาวุธ", Content = "ไม่พบอาวุธในกระเป๋า" })
+            WeaponListParagraph:Set({ Title = "รายการอาวุธ", Content = "ไม่พบอาวุธในกระเป๋า/ตัวละคร" })
+            WeaponDropdown:Refresh({"ไม่พบอาวุธ"})
             return
         end
+        
+        local weaponNames = {}
         local lines = {}
         for i, t in ipairs(toolCache) do
             local eq = Character:FindFirstChild(t.Name) ~= nil
             table.insert(lines, (eq and "✅ " or "  ") .. i .. ". " .. t.Name)
+            table.insert(weaponNames, t.Name)
         end
+        
         WeaponListParagraph:Set({
             Title   = "พบ " .. #toolCache .. " อาวุธ",
             Content = table.concat(lines, "\n")
         })
-    end,
-})
-
-WeaponTab:CreateButton({
-    Name     = "⚔️ Equip อาวุธที่พิมพ์",
-    Callback = function()
-        if typedWeaponName == "" then
-            Rayfield:Notify({ Title = "⚠️", Content = "พิมพ์ชื่ออาวุธในช่อง Input ก่อน", Duration = 3 })
-            return
-        end
-        if #toolCache == 0 then toolCache = getAllTools() end
-        -- ค้นหาชื่อตรงหรือ contains
-        local found = nil
-        for _, t in ipairs(toolCache) do
-            if t.Name:lower() == typedWeaponName:lower() then
-                found = t; break
-            end
-        end
-        -- ถ้าไม่ตรง ลอง contains
-        if not found then
-            for _, t in ipairs(toolCache) do
-                if t.Name:lower():find(typedWeaponName:lower(), 1, true) then
-                    found = t; break
-                end
-            end
-        end
-        if found then
-            local ok, err = pcall(equipTool, found)
-            if ok then
-                Rayfield:Notify({ Title = "✅ Equipped", Content = "ถือ: " .. found.Name, Duration = 2 })
-            else
-                Rayfield:Notify({ Title = "❌ Error", Content = tostring(err), Duration = 4 })
-            end
-        else
-            Rayfield:Notify({ Title = "⚠️ ไม่พบ", Content = "ไม่มีอาวุธชื่อ '" .. typedWeaponName .. "'", Duration = 3 })
+        
+        -- อัปเดตรายชื่ออาวุธลงใน Dropdown ให้เลือกได้เลย
+        if #weaponNames > 0 then
+            WeaponDropdown:Refresh(weaponNames, true)
         end
     end,
 })
 
 WeaponTab:CreateToggle({
-    Name = "🔄 Auto Equip อาวุธ (วนลูปถืออัตโนมัติ)",
+    Name = "🔄 Auto Equip อาวุธ (ที่เลือกใน Dropdown ด้านบน)",
     CurrentValue = false,
     Flag = "AutoEquipToggle",
     Callback = function(val)
@@ -204,16 +182,11 @@ WeaponTab:CreateToggle({
         if val then
             task.spawn(function()
                 while autoEquipWeapon and task.wait(0.5) do
-                    if typedWeaponName ~= "" then
+                    if typedWeaponName and typedWeaponName ~= "" and typedWeaponName ~= "ยังไม่ได้สแกนอาวุธ..." and typedWeaponName ~= "ไม่พบอาวุธ" then
                         local tools = getAllTools()
                         local found = nil
                         for _, t in ipairs(tools) do
-                            if t.Name:lower() == typedWeaponName:lower() then found = t; break end
-                        end
-                        if not found then
-                            for _, t in ipairs(tools) do
-                                if t.Name:lower():find(typedWeaponName:lower(), 1, true) then found = t; break end
-                            end
+                            if t.Name == typedWeaponName then found = t; break end
                         end
                         if found and found.Parent ~= Character then
                             pcall(equipTool, found)
