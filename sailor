@@ -1106,6 +1106,73 @@ local DungeonStatus = DungeonTab:CreateParagraph({
     Content = "ปิดอยู่ — เปิดสวิตช์ด้านล่างเพื่อเริ่ม"
 })
 
+-- ── Stats Paragraph (Dungeon Counter) ─────────────────────────
+DungeonTab:CreateSection("🏆 สถิติการลงดันเจี้ยน")
+local dungeonCompletedCount = 0
+local previousWave = 0
+local lastMaxWave = 15
+
+local DungeonCountStatus = DungeonTab:CreateParagraph({
+    Title   = "จำนวนรอบที่จบดันเจี้ยน",
+    Content = "สำเร็จไปแล้ว: 0 รอบ\n(กำลังรอจับสถานะ Wave จากในเกม)"
+})
+
+DungeonTab:CreateButton({
+    Name = "🔄 รีเซ็ตการนับรอบ",
+    Callback = function()
+        dungeonCompletedCount = 0
+        previousWave = 0
+        lastMaxWave = 15
+        pcall(function()
+            DungeonCountStatus:Set({ Title = "จำนวนรอบที่จบดันเจี้ยน", Content = "สำเร็จไปแล้ว: 0 รอบ\n(รีเซ็ตแล้ว)" })
+        end)
+    end,
+})
+
+task.spawn(function()
+    while true do
+        task.wait(0.5) -- เช็คทุก 0.5 วิ (ไวขึ้นเพื่อไม่ให้พลาดตอน wave เด้ง)
+        local foundWave = false
+        local currentWaveNum = nil
+        local maxWaveNum = nil
+        
+        if LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") then
+            -- ค้นหา TextLabel ที่มีคำว่า WAVE และ "ตัวเลข/ตัวเลข"
+            for _, obj in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+                if obj:IsA("TextLabel") and obj.Visible and obj.Text:upper():match("WAVE") then
+                    local c, m = obj.Text:match("(%d+)%s*/%s*(%d+)")
+                    if c and m then
+                        currentWaveNum = tonumber(c)
+                        maxWaveNum = tonumber(m)
+                        foundWave = true
+                        break
+                    end
+                end
+            end
+        end
+        
+        if foundWave and currentWaveNum and maxWaveNum then
+            -- ถ้าเลข wave ลดลง (เช่นจาก 15 กลับมาเป็น 1, 2, หรือ 3) แสดงว่าเริ่มดันใหม่
+            if previousWave > 0 and currentWaveNum < previousWave then
+                -- ถ้าดันก่อนหน้าไปถึง wave สุดท้าย (อนุโลมให้ >= max-1 เผื่อหลุด)
+                if previousWave >= (lastMaxWave - 1) then
+                    dungeonCompletedCount = dungeonCompletedCount + 1
+                end
+            end
+            
+            previousWave = currentWaveNum
+            lastMaxWave = maxWaveNum
+            
+            pcall(function()
+                DungeonCountStatus:Set({ 
+                    Title   = "จำนวนรอบที่จบดันเจี้ยน", 
+                    Content = "สำเร็จไปแล้ว: " .. dungeonCompletedCount .. " รอบ\n(Wave ปัจจุบัน: " .. currentWaveNum .. "/" .. maxWaveNum .. ")"
+                })
+            end)
+        end
+    end
+end)
+
 -- ── Helpers ───────────────────────────────────────────────────
 local function dungeonSetStatus(title, content)
     pcall(function() DungeonStatus:Set({ Title = title, Content = content }) end)
